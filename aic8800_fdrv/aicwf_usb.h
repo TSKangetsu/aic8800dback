@@ -74,10 +74,6 @@ struct aic_usb_dev {
 	uint bulk_in_pipe;
 	uint bulk_out_pipe;
 
-#ifdef CONFIG_USB_MSG_EP
-	uint msg_out_pipe;
-#endif
-
 	int tx_free_count;
 	int tx_post_count;
 

@@ -62,11 +62,9 @@
 /*
  * Defines
  */
-#define DRV_RELEASE_DATE "20220429"
-#define DRV_PATCH_LEVEL  "005"
-#define DRV_RELEASE_TAG  "aic-btlpm-" DRV_RELEASE_DATE "-" DRV_PATCH_LEVEL
-#define VERSION          "1.3.3"
-#define PROC_DIR         "bluetooth/sleep"
+
+#define VERSION		"1.3.3"
+#define PROC_DIR	"bluetooth/sleep"
 
 #define DEFAULT_UART_INDEX   1
 #define BT_BLUEDROID_SUPPORT 1
@@ -110,10 +108,7 @@ DECLARE_DELAYED_WORK(sleep_workqueue, bluesleep_sleep_work);
 #define BT_TXDATA	0x02
 #define BT_ASLEEP	0x04
 #define BT_TXIDLE	0x08
-/*
- * When soc-tx with PULL-UP resistance, no need to enable it
 #define BT_PAUSE	0x09
- */
 #define BT_RXTIMER	0x0a
 
 #if BT_BLUEDROID_SUPPORT
@@ -217,12 +212,7 @@ static void bluesleep_sleep_work(struct work_struct *work)
 			BT_DBG("already asleep");
 			return;
 		}
-		if (bsi->uport->ops->tx_empty(bsi->uport) ||
-#ifdef BT_PAUSE
-			(test_bit(BT_PAUSE, &flags) && test_bit(BT_TXIDLE, &flags))) {
-#else
-			test_bit(BT_TXIDLE, &flags)) {
-#endif
+		if (bsi->uport->ops->tx_empty(bsi->uport)) {
 			BT_DBG("going to sleep...");
 			set_bit(BT_ASLEEP, &flags);
 			/*Deactivating UART */
@@ -253,27 +243,15 @@ static void bluesleep_sleep_work(struct work_struct *work)
 		set_bit(BT_RXTIMER, &flags);
 		hsuart_power(1);
 	} else {
-		static int tx_idle_cnt;
-		if (gpio_get_value(bsi->ext_wake) != bsi->ext_wake_assert && test_bit(BT_TXIDLE, &flags))
-			tx_idle_cnt++;
-		else
-			tx_idle_cnt = 0;
-
 		mod_timer(&rx_timer, jiffies + (RX_TIMER_INTERVAL * HZ));
 		set_bit(BT_RXTIMER, &flags);
 
-#ifdef BT_PAUSE
-		if (test_bit(BT_PAUSE, &flags)) {
+		if(test_bit(BT_PAUSE, &flags)){
 			BT_DBG("rx wake du BT_PAUSE:%lx", flags);
 			///enable bt sleep immediately
 			gpio_set_value(bsi->ext_wake, !bsi->ext_wake_assert);
-		} else if ((gpio_get_value(bsi->ext_wake) != bsi->ext_wake_assert
-					&& !test_bit(BT_TXIDLE, &flags)) || tx_idle_cnt > 5) {
-#else
-		if ((gpio_get_value(bsi->ext_wake) != bsi->ext_wake_assert
-					&& !test_bit(BT_TXIDLE, &flags)) || tx_idle_cnt > 5) {
-#endif
-			tx_idle_cnt = 0;
+		} else if (gpio_get_value(bsi->ext_wake) != bsi->ext_wake_assert
+					&& !test_bit(BT_TXIDLE, &flags)) {
 			BT_DBG("force retrigger bt wake:%lx", flags);
 			gpio_set_value(bsi->ext_wake, bsi->ext_wake_assert);
 			msleep(20);
@@ -369,10 +347,8 @@ static ssize_t bluesleep_write_proc_lpm(struct file *file,
 		return -EFAULT;
 
 	if (b == '0') {
-#if BT_BLUEDROID_SUPPORT
-#ifdef BT_PAUSE
+#if 1
 		set_bit(BT_PAUSE, &flags);
-#endif
 		set_bit(BT_TXIDLE, &flags);
 		clear_bit(BT_TXDATA, &flags);
 		/* deassert BT_WAKE */
@@ -384,9 +360,7 @@ static ssize_t bluesleep_write_proc_lpm(struct file *file,
 		bsi->uport = NULL;
 #endif
 	} else {
-#ifdef BT_PAUSE
 		clear_bit(BT_PAUSE, &flags);
-#endif
 		/* HCI_DEV_REG */
 		if (!has_lpm_enabled) {
 			has_lpm_enabled = true;
@@ -433,24 +407,6 @@ static ssize_t bluesleep_write_proc_btwrite(struct file *file,
 	return count;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-static const struct proc_ops lpm_fops = {
-	.proc_open    = bluesleep_lpm_proc_open,
-	.proc_read    = seq_read,
-	.proc_lseek   = seq_lseek,
-	.proc_release = single_release,
-	.proc_write   = bluesleep_write_proc_lpm,
-};
-static const struct proc_ops btwrite_fops = {
-	.proc_open    = bluesleep_btwrite_proc_open,
-	.proc_read    = seq_read,
-	.proc_lseek   = seq_lseek,
-	.proc_release = single_release,
-	.proc_write   = bluesleep_write_proc_btwrite,
-};
-
-#else
-
 static const struct file_operations lpm_fops = {
 	.owner		= THIS_MODULE,
 	.open		= bluesleep_lpm_proc_open,
@@ -467,8 +423,6 @@ static const struct file_operations btwrite_fops = {
 	.release	= single_release,
 	.write		= bluesleep_write_proc_btwrite,
 };
-#endif
-
 #else
 /**
  * Handles HCI device events.
@@ -612,7 +566,7 @@ fail:
 /**
  * Stops the Sleep-Mode Protocol on the Host.
  */
-static __attribute__((unused)) void bluesleep_stop(void)
+static void bluesleep_stop(void)
 {
 	unsigned long irq_flags;
 
@@ -924,9 +878,6 @@ static int __init bluesleep_probe(struct platform_device *pdev)
 		case 0:
 		case 1:
 		case 2:
-		case 3:
-		case 4:
-		case 5:
 			uart_index = val;
 			break;
 		default:
@@ -963,10 +914,8 @@ static int bluesleep_remove(struct platform_device *pdev)
 	/* assert bt wake */
 	gpio_set_value(bsi->ext_wake, bsi->ext_wake_assert);
 	if (test_bit(BT_PROTO, &flags)) {
-#ifndef BT_PAUSE
 		if (disable_irq_wake(bsi->host_wake_irq))
 			BT_ERR("Couldn't disable hostwake IRQ wakeup mode\n");
-#endif
 		free_irq(bsi->host_wake_irq, &bsi->pdev->dev);
 		del_timer(&rx_timer);
 		if (test_bit(BT_ASLEEP, &flags))
@@ -1014,7 +963,6 @@ static int __init bluesleep_init(void)
 	struct proc_dir_entry *ent;
 
 	BT_DBG("BlueSleep Mode Driver Ver %s", VERSION);
-	BT_DBG("Driver Release Tag: %s", DRV_RELEASE_TAG);
 
 	retval = platform_driver_probe(&bluesleep_driver, bluesleep_probe);
 	if (retval)
@@ -1134,7 +1082,7 @@ fail:
 static void __exit bluesleep_exit(void)
 {
 #if !BT_BLUEDROID_SUPPORT
-	bt_unregister_notifier(&hci_event_nblock);
+	hci_unregister_notifier(&hci_event_nblock);
 #endif
 	platform_driver_unregister(&bluesleep_driver);
 

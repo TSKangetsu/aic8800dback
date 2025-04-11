@@ -21,8 +21,7 @@
 
 int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 {
-	int ret = -ENOMEM;
-	int errnum = 0;
+	int ret = 0;
 	struct aicwf_bus *bus_if;
 
 	if (!dev) {
@@ -32,6 +31,7 @@ int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 	bus_if = dev_get_drvdata(dev);
 	bus_if->cmd_buf = kzalloc(CMD_BUF_MAX, GFP_KERNEL);
 	if (!bus_if->cmd_buf) {
+		ret = -ENOMEM;
 		txrx_err("proto_attach failed\n");
 		goto fail;
 	}
@@ -45,20 +45,18 @@ int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 #endif
 
 	if (IS_ERR(bus_if->bustx_thread)) {
-		errnum = PTR_ERR(bus_if->bustx_thread);
 		bus_if->bustx_thread  = NULL;
-		txrx_err("aicwf_bustx_thread run fail, errnum is %d\n", errnum);
+		txrx_err("aicwf_bustx_thread run fail\n");
 		goto fail;
 	}
 
 	if (IS_ERR(bus_if->busrx_thread)) {
-		errnum = PTR_ERR(bus_if->busrx_thread);
 		bus_if->busrx_thread  = NULL;
-		txrx_err("aicwf_busrx_thread run fail, errnum is %d\n", errnum);
+		txrx_err("aicwf_bustx_thread run fail\n");
 		goto fail;
 	}
 
-	return 0;
+	return ret;
 fail:
 	aicwf_bus_deinit(dev);
 
@@ -75,7 +73,7 @@ void aicwf_bus_deinit(struct device *dev)
 		return;
 	}
 	sdio_dbg("%s", __func__);
-	bus_if = aicbsp_get_drvdata(dev);
+	bus_if = dev_get_drvdata(dev);
 	aicwf_bus_stop(bus_if);
 
 	sdiodev = bus_if->bus_priv.sdio;
@@ -85,7 +83,7 @@ void aicwf_bus_deinit(struct device *dev)
 		bus_if->cmd_buf = NULL;
 	}
 
-	if (!IS_ERR_OR_NULL(bus_if->bustx_thread)) {
+	if (bus_if->bustx_thread) {
 		complete_all(&bus_if->bustx_trgg);
 		kthread_stop(bus_if->bustx_thread);
 		bus_if->bustx_thread = NULL;
@@ -202,17 +200,21 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 				else
 					adjust_len = aggr_len;
 
-				skb_inblock = __dev_alloc_skb(aggr_len+4, GFP_KERNEL);
-				if (skb_inblock == NULL) {
-					txrx_err("no more space!\n");
-					aicwf_dev_skb_free(skb);
-					return -EBADE;
+			   skb_inblock = __dev_alloc_skb(aggr_len+4, GFP_KERNEL);
+			   if (skb_inblock == NULL) {
+				   txrx_err("no more space!\n");
+				   aicwf_dev_skb_free(skb);
+				   return -EBADE;
 				}
 
 				skb_put(skb_inblock, aggr_len+4);
 				memcpy(skb_inblock->data, data, aggr_len+4);
 				if ((*(skb_inblock->data + 2) & 0x7f) == SDIO_TYPE_CFG_CMD_RSP)
 					rwnx_rx_handle_msg(rx_priv->sdiodev, (struct ipc_e2a_msg *)(skb_inblock->data + 4));
+				#if 0
+				if ((*(skb_inblock->data + 2) & 0x7f) == SDIO_TYPE_CFG_DATA_CFM)
+					aicwf_sdio_host_tx_cfm_handler(&(rx_priv->sdiodev->rwnx_hw->sdio_env), (u32 *)(skb_inblock->data + 4));
+				#endif
 				skb_pull(skb, adjust_len+4);
 			}
 		}
@@ -223,7 +225,9 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 		atomic_dec(&rx_priv->rx_cnt);
 	}
 
+#if defined(CONFIG_SDIO_PWRCTRL)
 	aicwf_sdio_pwr_stctl(rx_priv->sdiodev, SDIO_ACTIVE_ST);
+#endif
 
 	return ret;
 }
@@ -286,7 +290,7 @@ static void aicwf_recvframe_queue_deinit(struct list_head *q)
 
 void aicwf_rx_deinit(struct aicwf_rx_priv *rx_priv)
 {
-	if (!IS_ERR_OR_NULL(rx_priv->sdiodev->bus_if->busrx_thread)) {
+	if (rx_priv->sdiodev->bus_if->busrx_thread) {
 		complete_all(&rx_priv->sdiodev->bus_if->busrx_trgg);
 		kthread_stop(rx_priv->sdiodev->bus_if->busrx_thread);
 		rx_priv->sdiodev->bus_if->busrx_thread = NULL;

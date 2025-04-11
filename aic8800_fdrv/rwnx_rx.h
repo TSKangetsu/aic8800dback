@@ -364,7 +364,5 @@ void reord_timeout_handler (struct timer_list *t);
 #endif
 
 #endif
-void rwnx_rxdata_process_amsdu(struct rwnx_hw *rwnx_hw, struct sk_buff *skb, u8 vif_idx,
-									struct sk_buff_head *list);
 
 #endif /* _RWNX_RX_H_ */

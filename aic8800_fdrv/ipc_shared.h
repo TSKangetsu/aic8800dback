@@ -5,7 +5,7 @@
  *
  * @brief Shared data between both IPC modules.
  *
- * Copyright (C) RivieraWaves 2011-2021
+ * Copyright (C) RivieraWaves 2011-2019
  *
  ****************************************************************************************
  */
@@ -116,21 +116,16 @@
 /*
  * Maximum number of payload addresses and lengths present in the descriptor
  */
-#ifdef CONFIG_RWNX_SPLIT_TX_BUF
 #define NX_TX_PAYLOAD_MAX      6
-#else
-#define NX_TX_PAYLOAD_MAX      1
-#endif
 
 /*
  * Message struct/ID API version
  */
-#define MSG_API_VER  33
+#define MSG_API_VER  15
 
 /*
  ****************************************************************************************
  */
-#if defined(AICWF_USB_SUPPORT)
 // c.f LMAC/src/tx/tx_swdesc.h
 /// Descriptor filled by the Host
 struct hostdesc {
@@ -147,6 +142,7 @@ struct hostdesc {
 	/// Size of the payload
 	u16_l packet_len;
 #endif //(NX_AMSDU_TX)
+
 #ifdef CONFIG_RWNX_FULLMAC
 	/// Address of the status descriptor in host memory (used for confirmation upload)
 	u32_l status_desc_addr;
@@ -187,52 +183,6 @@ struct hostdesc {
 	u16_l flags;
 #endif /* CONFIG_RWNX_FULLMAC */
 };
-#else
-// c.f LMAC/src/tx/tx_swdesc.h
-/// Descriptor filled by the Host
-struct hostdesc {
-	/// Pointer to packet payload
-	/// Size of the payload
-	u16_l packet_len;
-	u16_l flags_ext;
-
-	u32_l hostid;
-#ifdef CONFIG_RWNX_FULLMAC
-	/// Address of the status descriptor in host memory (used for confirmation upload)
-	//u32_l status_desc_addr;
-	/// Destination Address
-	struct mac_addr eth_dest_addr;
-	/// Source Address
-	struct mac_addr eth_src_addr;
-	/// Ethernet Type
-	u16_l ethertype;
-#else /* ! CONFIG_RWNX_FULLMAC */
-#ifdef CONFIG_RWNX_AGG_TX
-	///Sequence Number for AMPDU MPDUs - for quick check if it's allowed within window
-	u16_l sn;
-#endif /* CONFIG_RWNX_AGG_TX */
-	/// Padding between the buffer control structure and the MPDU in host memory
-	u8_l padding;
-#endif /* CONFIG_RWNX_FULLMAC */
-	u8_l ac;
-	/// Packet TID (0xFF if not a QoS frame)
-	u8_l tid;
-	/// Interface Id
-	u8_l vif_idx;
-	/// Station Id (0xFF if station is unknown)
-	u8_l staid;
-#ifdef CONFIG_RWNX_MUMIMO_TX
-	/// MU-MIMO information (GroupId and User Position in the group) - The GroupId
-	/// is located on bits 0-5 and the User Position on bits 6-7. The GroupId value is set
-	/// to 63 if MU-MIMO shall not be used
-	u8_l mumimo_info;
-#endif /* CONFIG_RWNX_MUMIMO_TX */
-#ifdef CONFIG_RWNX_FULLMAC
-	/// TX flags
-	u16_l flags;
-#endif /* CONFIG_RWNX_FULLMAC */
-};
-#endif
 
 /// Descriptor filled by the UMAC
 struct umacdesc {

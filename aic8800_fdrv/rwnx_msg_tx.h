@@ -61,7 +61,7 @@ int rwnx_send_p2p_noa_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 int rwnx_send_arpoffload_en_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 						  u32_l ipaddr,  u8_l enable);
 #endif
-int rwnx_send_rf_config_req(struct rwnx_hw *rwnx_hw, u8_l ofst, u8_l sel, u8_l *tbl, u16_l len);
+int rwnx_send_rf_config_req(struct rwnx_hw *rwnx_hw);
 int rwnx_send_rf_calib_req(struct rwnx_hw *rwnx_hw, struct mm_set_rf_calib_cfm *cfm);
 int rwnx_send_get_macaddr_req(struct rwnx_hw *rwnx_hw, struct mm_get_mac_addr_cfm *cfm);
 
@@ -164,9 +164,6 @@ int rwnx_send_txop_req(struct rwnx_hw *rwnx_hw, uint16_t *txop, u8_l long_nav_en
 int rwnx_send_get_fw_version_req(struct rwnx_hw *rwnx_hw, struct mm_get_fw_version_cfm *cfm);
 int rwnx_send_txpwr_idx_req(struct rwnx_hw *rwnx_hw);
 int rwnx_send_txpwr_ofst_req(struct rwnx_hw *rwnx_hw);
-int rwnx_send_txpwr_ofst2x_req(struct rwnx_hw *rwnx_hw);
-#ifdef CONFIG_USB_BT
-int rwnx_send_reboot(struct rwnx_hw *rwnx_hw);
-#endif // CONFIG_USB_BT
+
 
 #endif /* _RWNX_MSG_TX_H_ */

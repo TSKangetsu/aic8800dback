@@ -25,12 +25,10 @@
 #ifdef AICWF_SDIO_SUPPORT
 #include "sdio_host.h"
 #endif
-#include "aic_bsp_export.h"
 
 int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 {
 	int ret = 0;
-	int errnum = 0;
 	struct aicwf_bus *bus_if;
 
 	if (!dev) {
@@ -58,16 +56,14 @@ int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 #endif
 
 	if (IS_ERR(bus_if->bustx_thread)) {
-		errnum = PTR_ERR(bus_if->bustx_thread);
 		bus_if->bustx_thread  = NULL;
-		txrx_err("aicwf_bustx_thread run fail, errnum is %d\n", errnum);
+		txrx_err("aicwf_bustx_thread run fail\n");
 		goto fail;
 	}
 
 	if (IS_ERR(bus_if->busrx_thread)) {
-		errnum = PTR_ERR(bus_if->busrx_thread);
 		bus_if->busrx_thread  = NULL;
-		txrx_err("aicwf_busrx_thread run fail, errnum is %d\n", errnum);
+		txrx_err("aicwf_bustx_thread run fail\n");
 		goto fail;
 	}
 
@@ -113,7 +109,7 @@ void aicwf_bus_deinit(struct device *dev)
 		bus_if->cmd_buf = NULL;
 	}
 
-	if (!IS_ERR_OR_NULL(bus_if->bustx_thread)) {
+	if (bus_if->bustx_thread) {
 		complete_all(&bus_if->bustx_trgg);
 		kthread_stop(bus_if->bustx_thread);
 		bus_if->bustx_thread = NULL;
@@ -154,11 +150,7 @@ struct aicwf_tx_priv *aicwf_tx_init(void *arg)
 #endif
 
 	atomic_set(&tx_priv->aggr_count, 0);
-#ifdef AICBSP_RESV_MEM_SUPPORT
-	tx_priv->aggr_buf = aicbsp_resv_mem_alloc_skb(MAX_AGGR_TXPKT_LEN, AIC_RESV_MEM_TXDATA);
-#else
 	tx_priv->aggr_buf = dev_alloc_skb(MAX_AGGR_TXPKT_LEN);
-#endif
 	if (!tx_priv->aggr_buf) {
 		txrx_err("Alloc bus->txdata_buf failed!\n");
 		kfree(tx_priv);
@@ -173,11 +165,7 @@ struct aicwf_tx_priv *aicwf_tx_init(void *arg)
 void aicwf_tx_deinit(struct aicwf_tx_priv *tx_priv)
 {
 	if (tx_priv && tx_priv->aggr_buf) {
-#ifdef AICBSP_RESV_MEM_SUPPORT
-		aicbsp_resv_mem_kfree_skb(tx_priv->aggr_buf, AIC_RESV_MEM_TXDATA);
-#else
 		dev_kfree_skb(tx_priv->aggr_buf);
-#endif
 		kfree(tx_priv);
 	}
 }
@@ -200,41 +188,6 @@ static bool aicwf_another_ptk(struct sk_buff *skb)
 	return true;
 }
 #endif
-
-static void aicwf_count_rx_tp(struct aicwf_rx_priv *rx_priv, int len)
-{
-#ifdef AICWF_SDIO_SUPPORT
-	struct device *rwnx_dev = rx_priv->sdiodev->dev;
-#endif
-#ifdef AICWF_USB_SUPPORT
-	struct device *rwnx_dev = rx_priv->usbdev->dev;
-#endif
-	long long timeus = 0;
-	char *envp[] = {
-		"SYSTEM=WIFI",
-		"EVENT=BOOSTREQ",
-		"SUBEVENT=RX",
-		"TIMEOUT_SEC=5",
-		NULL};
-
-	rx_priv->rx_data_len += len;
-
-	rx_priv->rxtimeend = ktime_get();
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
-	timeus = div_u64(rx_priv->rxtimeend.tv64 - rx_priv->rxtimebegin.tv64, NSEC_PER_USEC);
-#else
-	timeus = ktime_to_us(rx_priv->rxtimeend - rx_priv->rxtimebegin);
-#endif
-
-	if (timeus >= USEC_PER_SEC) {
-		// calc & send uevent
-		if (div_u64(rx_priv->rx_data_len, timeus) >= 6)
-			kobject_uevent_env(&rwnx_dev->kobj, KOBJ_CHANGE, envp);
-
-		rx_priv->rx_data_len = 0;
-		rx_priv->rxtimebegin = rx_priv->rxtimeend;
-	}
-}
 
 int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 {
@@ -281,7 +234,6 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 
 				skb_put(skb_inblock, aggr_len);
 				memcpy(skb_inblock->data, data, aggr_len);
-				aicwf_count_rx_tp(rx_priv, aggr_len);
 				rwnx_rxdataind_aicwf(rx_priv->sdiodev->rwnx_hw, skb_inblock, (void *)rx_priv);
 				skb_pull(skb, adjust_len);
 			} else {
@@ -319,9 +271,9 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 		atomic_dec(&rx_priv->rx_cnt);
 	}
 
-#if defined(CONFIG_SDIO_PWRCTRL)
+    #if defined(CONFIG_SDIO_PWRCTRL)
 	aicwf_sdio_pwr_stctl(rx_priv->sdiodev, SDIO_ACTIVE_ST);
-#endif
+    #endif
 
 	return ret;
 #else //AICWF_USB_SUPPORT
@@ -372,7 +324,6 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
 
 			skb_put(skb_inblock, aggr_len);
 			memcpy(skb_inblock->data, data, aggr_len);
-			aicwf_count_rx_tp(rx_priv, aggr_len);
 			rwnx_rxdataind_aicwf(rx_priv->usbdev->rwnx_hw, skb_inblock, (void *)rx_priv);
 			///TODO: here need to add rx data process
 
@@ -421,7 +372,7 @@ static struct recv_msdu *aicwf_rxframe_queue_init(struct list_head *q, int qsize
 	for (i = 0; i < qsize; i++) {
 		INIT_LIST_HEAD(&req->rxframe_list);
 		list_add(&req->rxframe_list, q);
-		//req->len = 0;
+		req->len = 0;
 		req++;
 	}
 
@@ -477,6 +428,7 @@ void aicwf_rx_deinit(struct aicwf_rx_priv *rx_priv)
 	struct reord_ctrl_info *reord_info, *tmp;
 
 	txrx_dbg("%s\n", __func__);
+
 	spin_lock_bh(&rx_priv->stas_reord_lock);
 	list_for_each_entry_safe(reord_info, tmp,
 		&rx_priv->stas_reord_list, list) {
@@ -487,15 +439,14 @@ void aicwf_rx_deinit(struct aicwf_rx_priv *rx_priv)
 
 #ifdef AICWF_SDIO_SUPPORT
 	txrx_dbg("sdio rx thread\n");
-	if (!IS_ERR_OR_NULL(rx_priv->sdiodev->bus_if->busrx_thread)) {
+	if (rx_priv->sdiodev->bus_if->busrx_thread) {
 		complete_all(&rx_priv->sdiodev->bus_if->busrx_trgg);
 		kthread_stop(rx_priv->sdiodev->bus_if->busrx_thread);
 		rx_priv->sdiodev->bus_if->busrx_thread = NULL;
 	}
 #endif
 #ifdef AICWF_USB_SUPPORT
-	txrx_dbg("usb rx thread\n");
-	if (!IS_ERR_OR_NULL(rx_priv->usbdev->bus_if->busrx_thread)) {
+	if (rx_priv->usbdev->bus_if->busrx_thread) {
 		complete_all(&rx_priv->usbdev->bus_if->busrx_trgg);
 		kthread_stop(rx_priv->usbdev->bus_if->busrx_thread);
 		rx_priv->usbdev->bus_if->busrx_thread = NULL;
@@ -625,11 +576,48 @@ struct sk_buff *aicwf_frame_dequeue(struct frame_queue *pq)
 	return p;
 }
 
+static struct sk_buff *aicwf_skb_dequeue_tail(struct frame_queue *pq, int prio)
+{
+	struct sk_buff_head *q = &pq->queuelist[prio];
+	struct sk_buff *p = skb_dequeue_tail(q);
+
+	if (!p)
+		return NULL;
+
+	pq->qcnt--;
+	return p;
+}
+
 bool aicwf_frame_enq(struct device *dev, struct frame_queue *q, struct sk_buff *pkt, int prio)
 {
+	struct sk_buff *p = NULL;
+	int prio_modified = -1;
+
 	if (q->queuelist[prio].qlen < q->qmax && q->qcnt < q->qmax) {
 		aicwf_frame_queue_penq(q, prio, pkt);
 		return true;
-	} else
-		return false;
+	}
+	if (q->queuelist[prio].qlen >= q->qmax) {
+		prio_modified = prio;
+	} else if (q->qcnt >= q->qmax) {
+		p = aicwf_frame_queue_peek_tail(q, &prio_modified);
+		if (prio_modified > prio)
+			return false;
+	}
+
+	if (prio_modified >= 0) {
+		if (prio_modified == prio)
+			return false;
+
+		p = aicwf_skb_dequeue_tail(q, prio_modified);
+		aicwf_dev_skb_free(p);
+
+		p = aicwf_frame_queue_penq(q, prio_modified, pkt);
+		if (p == NULL)
+			txrx_err("failed\n");
+	}
+
+	return p != NULL;
 }
+
+

@@ -110,13 +110,8 @@ struct rwnx_vif *rwnx_rx_get_vif(struct rwnx_hw *rwnx_hw, int vif_idx)
 
 	if (vif_idx < NX_VIRT_DEV_MAX) {
 		rwnx_vif = rwnx_hw->vif_table[vif_idx];
-		if (!rwnx_vif) {
-			dev_err(rwnx_hw->dev, "rwnx_vif is NULL, vif(%d)", vif_idx);
+		if (!rwnx_vif || !rwnx_vif->up)
 			return NULL;
-		} else if (!rwnx_vif->up) {
-			dev_err(rwnx_hw->dev, "rwnx_vif->up is false, vif(%d)", vif_idx);
-			return NULL;
-		}
 	}
 
 	return rwnx_vif;
@@ -289,7 +284,6 @@ static void rwnx_rx_statistic(struct rwnx_hw *rwnx_hw, struct hw_rxhdr *hw_rxhdr
 			rate_idx = N_CCK + idx - 4;
 		}
 	}
-	spin_lock_bh(&rwnx_hw->cb_lock);
 	if (rate_idx < rate_stats->size) {
 		if (!rate_stats->table[rate_idx])
 			rate_stats->rate_cnt++;
@@ -299,7 +293,6 @@ static void rwnx_rx_statistic(struct rwnx_hw *rwnx_hw, struct hw_rxhdr *hw_rxhdr
 		wiphy_err(rwnx_hw->wiphy, "RX: Invalid index conversion => %d/%d\n",
 				  rate_idx, rate_stats->size);
 	}
-	spin_unlock_bh(&rwnx_hw->cb_lock);
 #endif
 }
 
@@ -384,11 +377,8 @@ static void rwnx_rx_data_skb_forward(struct rwnx_hw *rwnx_hw, struct rwnx_vif *r
 
 	rx_skb->protocol = eth_type_trans(rx_skb, rwnx_vif->ndev);
 	memset(rx_skb->cb, 0, sizeof(rx_skb->cb));
-	REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
-	#ifdef CONFIG_RX_NETIF_RECV_SKB
-	local_bh_disable();
+	#if 0 //modify by aic
 	netif_receive_skb(rx_skb);
-	local_bh_enable();
 	#else
 	if (in_interrupt()) {
 		netif_rx(rx_skb);
@@ -408,7 +398,6 @@ static void rwnx_rx_data_skb_forward(struct rwnx_hw *rwnx_hw, struct rwnx_vif *r
 	#endif
 	}
 	#endif
-	REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
 
 	rwnx_hw->stats.last_rx = jiffies;
 }
@@ -419,7 +408,6 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 	struct sk_buff_head list;
 	struct sk_buff *rx_skb;
 	bool amsdu = rxhdr->flags_is_amsdu;
-	u8 flags_dst_idx = rxhdr->flags_dst_idx;
 	bool resend = false, forward = true;
 
 	skb->dev = rwnx_vif->ndev;
@@ -427,9 +415,6 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 	__skb_queue_head_init(&list);
 
 	if (amsdu) {
-		#if 1
-		rwnx_rxdata_process_amsdu(rwnx_hw, skb, rxhdr->flags_vif_idx, &list); //rxhdr not used below since skb free!
-		#else
 		int count;
 		ieee80211_amsdu_to_8023s(skb, &list, rwnx_vif->ndev->dev_addr,
 								 RWNX_VIF_TYPE(rwnx_vif), 0, NULL, NULL);
@@ -438,7 +423,6 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 		if (count > ARRAY_SIZE(rwnx_hw->stats.amsdus_rx))
 			count = ARRAY_SIZE(rwnx_hw->stats.amsdus_rx);
 		rwnx_hw->stats.amsdus_rx[count - 1]++;
-		#endif
 	} else {
 		rwnx_hw->stats.amsdus_rx[0]++;
 		__skb_queue_head(&list, skb);
@@ -460,8 +444,8 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 		} else {
 			/* unicast pkt for STA inside the BSS, no need to forward to upper
 			   layer simply resend on wireless interface */
-			if (flags_dst_idx != RWNX_INVALID_STA) {
-				struct rwnx_sta *sta = &rwnx_hw->sta_table[flags_dst_idx];
+			if (rxhdr->flags_dst_idx != RWNX_INVALID_STA) {
+				struct rwnx_sta *sta = &rwnx_hw->sta_table[rxhdr->flags_dst_idx];
 				if (sta->valid && (sta->vlan_idx == rwnx_vif->vif_index)) {
 					forward = false;
 					resend = true;
@@ -530,11 +514,8 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 				arpoffload_proc(rx_skb, rwnx_vif);
 #endif
 			memset(rx_skb->cb, 0, sizeof(rx_skb->cb));
-			REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
-			#ifdef CONFIG_RX_NETIF_RECV_SKB
-			local_bh_disable();
+			#if 0 //modify by aic
 			netif_receive_skb(rx_skb);
-			local_bh_enable();
 			#else
 			if (in_interrupt()) {
 				netif_rx(rx_skb);
@@ -554,7 +535,6 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 			#endif
 			}
 			#endif
-			REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
 
 			rwnx_hw->stats.last_rx = jiffies;
 		}
@@ -581,9 +561,9 @@ static void rwnx_rx_mgmt(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 
 	//printk("rwnx_rx_mgmt\n");
 	if (ieee80211_is_mgmt(mgmt->frame_control) &&
-		(skb->len <= 24 || skb->len > 768)) {
-		printk("mgmt err\n");
-		return;
+	    (skb->len <= 24 || skb->len > 768)) {
+	    printk("mgmt err\n");
+	    return;
 	}
 	if (ieee80211_is_beacon(mgmt->frame_control)) {
 		if ((RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_MESH_POINT) &&
@@ -1095,9 +1075,7 @@ static int rwnx_rx_monitor(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 	skb->pkt_type = PACKET_OTHERHOST;
 	skb->protocol = htons(ETH_P_802_2);
 
-	local_bh_disable();
 	netif_receive_skb(skb);
-	local_bh_enable();
 
 	return 0;
 }
@@ -1282,7 +1260,6 @@ void reord_deinit_sta(struct aicwf_rx_priv *rx_priv, struct reord_ctrl_info *reo
 		return;
 	}
 
-	printk("reord_deinit_sta\n");
 	for (i = 0; i < 8; i++) {
 		struct recv_msdu *req, *next;
 		preorder_ctrl = &reord_info->preorder_ctrl[i];
@@ -1300,7 +1277,6 @@ void reord_deinit_sta(struct aicwf_rx_priv *rx_priv, struct reord_ctrl_info *reo
 		}
 		cancel_work_sync(&preorder_ctrl->reord_timer_work);
 	}
-
 	list_del(&reord_info->list);
 	kfree(reord_info);
 }
@@ -1310,8 +1286,6 @@ int reord_single_frame_ind(struct aicwf_rx_priv *rx_priv, struct recv_msdu *prfr
 	struct list_head *rxframes_freequeue = NULL;
 	struct sk_buff *skb = NULL;
 	struct rwnx_vif *rwnx_vif = (struct rwnx_vif *)rx_priv->rwnx_vif;
-	struct sk_buff_head list;
-	struct sk_buff *rx_skb;
 
 	rxframes_freequeue = &rx_priv->rxframes_freequeue;
 	skb = prframe->pkt;
@@ -1319,69 +1293,48 @@ int reord_single_frame_ind(struct aicwf_rx_priv *rx_priv, struct recv_msdu *prfr
 		txrx_err("skb is NULL\n");
 		return -1;
 	}
-
-	if (!prframe->forward) {
+	
+	if(!prframe->forward) {
+		//printk("single: %d not forward: drop\n", prframe->seq_num);
 		dev_kfree_skb(skb);
 		prframe->pkt = NULL;
 		reord_rxframe_free(&rx_priv->freeq_lock, rxframes_freequeue, &prframe->rxframe_list);
 		return 0;
 	}
 
-	//skb->data = prframe->rx_data;
-	//skb_set_tail_pointer(skb, prframe->len);
-	//skb->len = prframe->len;
-	__skb_queue_head_init(&list);
-	//printk("sg:%d\n", prframe->is_amsdu);
-	if(prframe->is_amsdu) {
-		rwnx_rxdata_process_amsdu(rwnx_vif->rwnx_hw, skb, rwnx_vif->vif_index, &list); //rxhdr not used below since skb free!
-	} else {
-		__skb_queue_head(&list, skb);
-	}
+	skb->data = prframe->rx_data;
+	skb_set_tail_pointer(skb, prframe->len);
+	skb->len = prframe->len;
 
-	while (!skb_queue_empty(&list)) {
-		rx_skb = __skb_dequeue(&list);
+	rwnx_vif->net_stats.rx_packets++;
+	rwnx_vif->net_stats.rx_bytes += skb->len;
+	//printk("netif sn=%d, len=%d\n", precv_frame->attrib.seq_num, skb->len);
 
-		rwnx_vif->net_stats.rx_packets++;
-		rwnx_vif->net_stats.rx_bytes += rx_skb->len;
-		//printk("netif sn=%d, len=%d\n", precv_frame->attrib.seq_num, skb->len);
-
-		rx_skb->dev = rwnx_vif->ndev;
-		rx_skb->protocol = eth_type_trans(rx_skb, rwnx_vif->ndev);
+	skb->dev = rwnx_vif->ndev;
+	skb->protocol = eth_type_trans(skb, rwnx_vif->ndev);
 
 #ifdef AICWF_ARP_OFFLOAD
-		if (RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_STATION || RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_P2P_CLIENT) {
-			arpoffload_proc(rx_skb, rwnx_vif);
-		}
+	if (RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_STATION || RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_P2P_CLIENT) {
+		arpoffload_proc(skb, rwnx_vif);
+	}
 #endif
-		memset(rx_skb->cb, 0, sizeof(rx_skb->cb));
-
-#ifdef CONFIG_FILTER_TCP_ACK
-		filter_rx_tcp_ack(rwnx_vif->rwnx_hw,rx_skb->data, cpu_to_le16(skb->len));
-#endif
-
-#ifdef CONFIG_RX_NETIF_RECV_SKB//AIDEN test
-		local_bh_disable();
-		netif_receive_skb(rx_skb);
-		local_bh_enable();
-#else
-		if (in_interrupt()) {
-			netif_rx(rx_skb);
-		} else {
-			/*
-			 * If the receive is not processed inside an ISR, the softirqd must be woken explicitly to service the NET_RX_SOFTIRQ.
-			 * * In 2.6 kernels, this is handledby netif_rx_ni(), but in earlier kernels, we need to do it manually.
-			 */
+	memset(skb->cb, 0, sizeof(skb->cb));
+	if (in_interrupt()) {
+		netif_rx(skb);
+	} else {
+		/*
+		 * If the receive is not processed inside an ISR, the softirqd must be woken explicitly to service the NET_RX_SOFTIRQ.
+		 * * In 2.6 kernels, this is handledby netif_rx_ni(), but in earlier kernels, we need to do it manually.
+		 */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0)
-			netif_rx_ni(rx_skb);
+		netif_rx_ni(skb);
 #else
-			ulong flags;
-			netif_rx(rx_skb);
-			local_irq_save(flags);
-			RAISE_RX_SOFTIRQ();
-			local_irq_restore(flags);
+		ulong flags;
+		netif_rx(skb);
+		local_irq_save(flags);
+		RAISE_RX_SOFTIRQ();
+		local_irq_restore(flags);
 #endif
-		}
-#endif /* CONFIG_RX_NETIF_RECV_SKB */
 	}
 
 	prframe->pkt = NULL;
@@ -1434,9 +1387,9 @@ void reord_rxframes_ind(struct aicwf_rx_priv *rx_priv,
 
 	phead = &preorder_ctrl->reord_list;
 	while (1) {
-		//spin_lock_bh(&preorder_ctrl->reord_list_lock);
+		spin_lock_bh(&preorder_ctrl->reord_list_lock);
 		if (list_empty(phead)) {
-			//spin_unlock_bh(&preorder_ctrl->reord_list_lock);
+			spin_unlock_bh(&preorder_ctrl->reord_list_lock);
 			break;
 		}
 
@@ -1445,17 +1398,14 @@ void reord_rxframes_ind(struct aicwf_rx_priv *rx_priv,
 
 		if (!SN_LESS(preorder_ctrl->ind_sn, prframe->seq_num)) {
 			list_del_init(&(prframe->reord_pending_list));
-			//spin_unlock_bh(&preorder_ctrl->reord_list_lock);
+			spin_unlock_bh(&preorder_ctrl->reord_list_lock);
 			reord_single_frame_ind(rx_priv, prframe);
 		} else {
-			//spin_unlock_bh(&preorder_ctrl->reord_list_lock);
+			spin_unlock_bh(&preorder_ctrl->reord_list_lock);
 			break;
 		}
 	}
 }
-
-int reorder_timeout = REORDER_UPDATE_TIME;
-module_param(reorder_timeout, int, 0660);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 void reord_timeout_handler (ulong data)
@@ -1468,14 +1418,11 @@ void reord_timeout_handler (struct timer_list *t)
 #else
 	struct reord_ctrl *preorder_ctrl = from_timer(preorder_ctrl, t, reord_timer);
 #endif
-
-#if 0
 	struct aicwf_rx_priv *rx_priv = preorder_ctrl->rx_priv;
 
 	if (reord_rxframes_process(rx_priv, preorder_ctrl, true) == true) {
 		mod_timer(&preorder_ctrl->reord_timer, jiffies + msecs_to_jiffies(REORDER_UPDATE_TIME));
 	}
-#endif
 
 	if (!work_pending(&preorder_ctrl->reord_timer_work))
 		schedule_work(&preorder_ctrl->reord_timer_work);
@@ -1486,19 +1433,11 @@ void reord_timeout_worker(struct work_struct *work)
 	struct reord_ctrl *preorder_ctrl = container_of(work, struct reord_ctrl, reord_timer_work);
 	struct aicwf_rx_priv *rx_priv = preorder_ctrl->rx_priv;
 
-	spin_lock_bh(&preorder_ctrl->reord_list_lock);
-#if 1//AIDEN
-	if (reord_rxframes_process(rx_priv, preorder_ctrl, true) == true) {
-		mod_timer(&preorder_ctrl->reord_timer, jiffies + msecs_to_jiffies(reorder_timeout/*REORDER_UPDATE_TIME*/));
-	}
-#endif
-
 	reord_rxframes_ind(rx_priv, preorder_ctrl);
-	spin_unlock_bh(&preorder_ctrl->reord_list_lock);
 	return ;
 }
 
-int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 seq_num, u8 tid, u8 forward, u8 is_amsdu)
+int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 seq_num, u8 tid, u8 forward)
 {
 	int ret = 0;
 	u8 *mac;
@@ -1525,11 +1464,10 @@ int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 s
 	pframe->seq_num = seq_num;
 	pframe->tid = tid;
 	pframe->rx_data = skb->data;
-	//pframe->len = skb->len;
+	pframe->len = skb->len;
 	pframe->pkt = skb;
 	pframe->forward = forward;
 	preorder_ctrl = pframe->preorder_ctrl;
-	pframe->is_amsdu = is_amsdu;
 
 	if ((ntohs(eh->h_proto) == ETH_P_PAE) || is_mcast)
 		return reord_single_frame_ind(rx_priv, pframe);
@@ -1571,38 +1509,17 @@ int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 s
 	spin_unlock_bh(&rx_priv->stas_reord_lock);
 
 	if (preorder_ctrl->enable == false) {
-		spin_lock_bh(&preorder_ctrl->reord_list_lock);//AIDEN
 		preorder_ctrl->ind_sn = pframe->seq_num;
 		reord_single_frame_ind(rx_priv, pframe);
 		preorder_ctrl->ind_sn = (preorder_ctrl->ind_sn + 1)%4096;
-		spin_unlock_bh(&preorder_ctrl->reord_list_lock);//AIDEN
 		return 0;
 	}
 
 	spin_lock_bh(&preorder_ctrl->reord_list_lock);
 	if (reord_need_check(preorder_ctrl, pframe->seq_num)) {
-#if 0
-		if (pframe->rx_data[42] == 0x80) {//this is rtp package
-			if (pframe->seq_num == preorder_ctrl->ind_sn) {
-				//printk("%s pframe->seq_num1:%d \r\n", __func__, pframe->seq_num);
-				reord_single_frame_ind(rx_priv, pframe);
-			} else {
-				printk("%s free pframe->seq_num:%d \r\n", __func__, pframe->seq_num);
-				if (pframe->pkt) {
-					dev_kfree_skb(pframe->pkt);
-					pframe->pkt = NULL;
-				}
-				reord_rxframe_free(&rx_priv->freeq_lock, &rx_priv->rxframes_freequeue, &pframe->rxframe_list);
-			}
-		} else {
-			//printk("%s pframe->seq_num2:%d \r\n", __func__, pframe->seq_num);
-			reord_single_frame_ind(rx_priv, pframe);//not need to reorder
-		}
-#else
-		reord_single_frame_ind(rx_priv, pframe);//not need to reorder
-#endif
+		reord_single_frame_ind(rx_priv, pframe);
 		spin_unlock_bh(&preorder_ctrl->reord_list_lock);
-		return 0;
+	return 0;
 	}
 
 	if (reord_rxframe_enqueue(preorder_ctrl, pframe)) {
@@ -1612,16 +1529,15 @@ int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 s
 
 	if (reord_rxframes_process(rx_priv, preorder_ctrl, false) == true) {
 		if (!timer_pending(&preorder_ctrl->reord_timer)) {
-			ret = mod_timer(&preorder_ctrl->reord_timer, jiffies + msecs_to_jiffies(reorder_timeout/*REORDER_UPDATE_TIME*/));
+			ret = mod_timer(&preorder_ctrl->reord_timer, jiffies + msecs_to_jiffies(REORDER_UPDATE_TIME));
 		}
 	} else {
 	if (timer_pending(&preorder_ctrl->reord_timer)) {
 			ret = del_timer(&preorder_ctrl->reord_timer);
 	}
 	}
-
-	reord_rxframes_ind(rx_priv, preorder_ctrl);
 	spin_unlock_bh(&preorder_ctrl->reord_list_lock);
+	reord_rxframes_ind(rx_priv, preorder_ctrl);
 
 	return 0;
 
@@ -1719,70 +1635,9 @@ void defrag_timeout_cb(struct timer_list *t)
 #endif
 
 	printk("%s:%p\r\n", __func__, defrag_ctrl);
-	spin_lock_bh(&defrag_ctrl->rwnx_hw->defrag_lock);
 	list_del_init(&defrag_ctrl->list);
 	dev_kfree_skb(defrag_ctrl->skb);
 	kfree(defrag_ctrl);
-	spin_unlock_bh(&defrag_ctrl->rwnx_hw->defrag_lock);
-}
-
-void rwnx_rxdata_process_amsdu(struct rwnx_hw *rwnx_hw, struct sk_buff *skb, u8 vif_idx,
-										struct sk_buff_head *list)
-{
-	u16 len_alligned = 0;
-	u16 sublen = 0;
-	struct sk_buff *sub_skb = NULL;
-	struct rwnx_vif *rwnx_vif;
-
-	//if (is_amsdu) 
-	{
-		//skb_pull(skb, pull_len-8);
-		/* |amsdu sub1 | amsdu sub2 | ... */
-		len_alligned = 0;
-		sublen = 0;
-		sub_skb = NULL;
-		while (skb->len > 16) {
-			sublen = (skb->data[12]<<8)|(skb->data[13]);
-			if (skb->len > (sublen+14))
-				len_alligned = roundup(sublen + 14, 4);
-			else if (skb->len == (sublen+14))
-				len_alligned = sublen+14;
-			else {
-				printk("accroding to amsdu: this will not happen\n");
-				break;
-			}
-			//printk("sublen = %d, %x, %x, %x, %x\r\n", sublen,skb->data[0], skb->data[1], skb->data[12], skb->data[13]);
-#if 1
-			sub_skb = __dev_alloc_skb(sublen - 6 + 12, GFP_KERNEL);
-			if(!sub_skb){
-				printk("sub_skb alloc fail:%d\n", sublen);
-				break;
-			}
-			skb_put(sub_skb, sublen - 6 + 12);
-			memcpy(sub_skb->data, skb->data, MAC_ADDR_LEN);
-			memcpy(&sub_skb->data[6], &skb->data[6], MAC_ADDR_LEN);
-			memcpy(&sub_skb->data[12], &skb->data[14 + 6], sublen - 6);
-
-			rwnx_vif = rwnx_rx_get_vif(rwnx_hw, vif_idx);
-			if (!rwnx_vif) {
-				printk("Frame received but no active vif (%d)", vif_idx);
-				//dev_kfree_skb(sub_skb);
-				break;
-			}
-
-			__skb_queue_tail(list, sub_skb);
-
-			//printk("a:%p\n", sub_skb);
-			//if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, sub_skb, hw_rxhdr))
-			//    dev_kfree_skb(sub_skb);
-#endif
-			skb_pull(skb, len_alligned);
-		}
-		//printk("af:%p\n", skb);
-
-		dev_kfree_skb(skb);
-		//return 0;
-	}
 }
 
 u8 rwnx_rxdataind_aicwf(struct rwnx_hw *rwnx_hw, void *hostid, void *rx_priv)
@@ -1806,11 +1661,13 @@ u8 rwnx_rxdataind_aicwf(struct rwnx_hw *rwnx_hw, void *hostid, void *rx_priv)
 	u8 is_frag = 0;
 	struct defrag_ctrl_info *defrag_info = NULL;
 	struct defrag_ctrl_info *defrag_info_tmp = NULL;
-	struct sk_buff *skb_tmp = NULL;
 	int ret;
 	u8 sta_idx = 0;
 	u16_l frame_ctrl;
 	u8 is_amsdu = 0;
+	u16 len_alligned = 0;
+	u16 sublen = 0;
+	struct sk_buff *sub_skb = NULL;
 	bool resend = false, forward = true;
 	const struct ethhdr *eth;
 
@@ -1870,6 +1727,7 @@ u8 rwnx_rxdataind_aicwf(struct rwnx_hw *rwnx_hw, void *hostid, void *rx_priv)
 
 			//Check if there is enough space to add the radiotap header
 			if (skb_headroom(skb) > rtap_len) {
+
 				skb_monitor = skb;
 
 				//Duplicate the HW Rx Header to override with the radiotap header
@@ -1884,10 +1742,45 @@ u8 rwnx_rxdataind_aicwf(struct rwnx_hw *rwnx_hw, void *hostid, void *rx_priv)
 				skb->data = (void *)hw_rxhdr;
 			}
 		} else {
+		//#ifdef CONFIG_RWNX_MON_DATA
+		#if 0
+			// Check if MSDU
+			if (!hw_rxhdr->flags_is_80211_mpdu) {
+				// MSDU
+				//Extract MAC header
+				u16 machdr_len = hw_rxhdr->mac_hdr_backup.buf_len;
+				u8 *machdr_ptr = hw_rxhdr->mac_hdr_backup.buffer;
+
+				//Pull Ethernet header from skb
+				skb_pull(skb, sizeof(struct ethhdr));
+
+				// Copy skb and extend for adding the radiotap header and the MAC header
+				skb_monitor = skb_copy_expand(skb,
+											  rtap_len + machdr_len,
+											  0, GFP_ATOMIC);
+
+				//Reserve space for the MAC Header
+				skb_push(skb_monitor, machdr_len);
+
+				//Copy MAC Header
+				memcpy(skb_monitor->data, machdr_ptr, machdr_len);
+
+				//Update frame length
+				frm_len += machdr_len - sizeof(struct ethhdr);
+			} else {
+				// MPDU
+				skb_monitor = skb_copy_expand(skb, rtap_len, 0, GFP_ATOMIC);
+			}
+
+			//Reset original skb->data pointer
+			skb->data = (void *)hw_rxhdr;
+		#else
+			//Reset original skb->data pointer
 			skb->data = (void *)hw_rxhdr;
 
 			wiphy_err(rwnx_hw->wiphy, "RX status %d is invalid when MON_DATA is disabled\n", status);
 			goto check_len_update;
+		#endif
 		}
 
 		skb_reset_tail_pointer(skb);
@@ -1958,7 +1851,7 @@ check_len_update:
 					is_amsdu = 1;
 			}
 
-			if (skb->data[1] & 0x80)//htc
+			if(skb->data[1] & 0x80)// htc
 				hdr_len += 4;
 
 			if ((skb->data[1] & 0x3) == 0x1)  {// to ds
@@ -1990,15 +1883,8 @@ check_len_update:
 				memcpy(ether_type, &skb->data[hdr_len + 6], 2);
 				break;
 			}
-			if(is_amsdu)
-				hw_rxhdr->flags_is_amsdu = 1;
-			else
-				hw_rxhdr->flags_is_amsdu = 0;
 
 			if (is_amsdu) {
-				#if 1
-                skb_pull(skb, pull_len-8);
-				#else
 				skb_pull(skb, pull_len-8);
 				/* |amsdu sub1 | amsdu sub2 | ... */
 				len_alligned = 0;
@@ -2037,14 +1923,13 @@ check_len_update:
 				}
 				dev_kfree_skb(skb);
 				return 0;
-				#endif
 			}
 
 			if (hw_rxhdr->flags_dst_idx != RWNX_INVALID_STA)
 				sta_idx = hw_rxhdr->flags_dst_idx;
 
 			if (!hw_rxhdr->flags_need_reord && ((frame_ctrl & MAC_FCTRL_MOREFRAG) || frag_num)) {
-				printk("rxfrag:%d, %d, %d, sn=%d, %d\r\n", (frame_ctrl & MAC_FCTRL_MOREFRAG), frag_num, skb->len, seq_num, pull_len);
+				printk("rxfrag:%d,%d\r\n", (frame_ctrl & MAC_FCTRL_MOREFRAG), frag_num);
 				if (frame_ctrl & MAC_FCTRL_MOREFRAG) {
 					spin_lock_bh(&rwnx_hw->defrag_lock);
 					if (!list_empty(&rwnx_hw->defrag_list)) {
@@ -2056,14 +1941,13 @@ check_len_update:
 							}
 						}
 					}
-
-					// printk("rx frag: sn=%d, fn=%d, skb->len=%d\r\n", seq_num, frag_num, skb->len);
+					spin_unlock_bh(&rwnx_hw->defrag_lock);
+					//printk("rx frag: sn=%d, fn=%d\r\n", seq_num, frag_num);
 					if (defrag_info) {
 						is_frag = 1;
 						if (defrag_info->next_fn != frag_num) {
-							printk("discard:%d:%d\n", defrag_info->next_fn, frag_num);
+							//printk("discard:%d:%d\n", defrag_info->next_fn, frag_num);
 							dev_kfree_skb(skb);
-							spin_unlock_bh(&rwnx_hw->defrag_lock);
 							return 0;
 						}
 
@@ -2074,22 +1958,19 @@ check_len_update:
 						defrag_info->frm_len += (skb->len - (pull_len - 8));
 						defrag_info->next_fn++;
 						dev_kfree_skb(skb);
-						spin_unlock_bh(&rwnx_hw->defrag_lock);
 						return 0;
 					} else {
-						defrag_info = kzalloc(sizeof(struct defrag_ctrl_info), GFP_KERNEL);
+						defrag_info = kzalloc(sizeof(struct defrag_ctrl_info), GFP_ATOMIC);
 						if (defrag_info == NULL) {
 							printk("no defrag_ctrl_info\r\n");
 							dev_kfree_skb(skb);
-							spin_unlock_bh(&rwnx_hw->defrag_lock);
 							return 0;
 						}
-						defrag_info->skb = __dev_alloc_skb(2000, GFP_KERNEL);
+						defrag_info->skb = __dev_alloc_skb(2000, GFP_ATOMIC);
 						if (defrag_info->skb == NULL) {
 							printk("no fragment skb\r\n");
 							dev_kfree_skb(skb);
 							kfree(defrag_info);
-							spin_unlock_bh(&rwnx_hw->defrag_lock);
 							return 0;
 						}
 						is_frag = 1;
@@ -2107,8 +1988,8 @@ check_len_update:
 						skb_put(defrag_info->skb, skb->len);
 						memcpy(defrag_info->skb->data, skb->data, skb->len);
 						defrag_info->frm_len = skb->len;
-						defrag_info->rwnx_hw = rwnx_hw;
-						// printk("first:%p,%p,%p,%p,%p, %d,%d\r\n", defrag_info, defrag_info->skb, defrag_info->skb->head, defrag_info->skb->tail, defrag_info->skb->end, defrag_info->frm_len, skb->len);
+						//printk("first:%p,%d\r\n", defrag_info, defrag_info->frm_len);
+						spin_lock_bh(&rwnx_hw->defrag_lock);
 						list_add_tail(&defrag_info->list, &rwnx_hw->defrag_list);
 						spin_unlock_bh(&rwnx_hw->defrag_lock);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
@@ -2133,13 +2014,12 @@ check_len_update:
 								break;
 							}
 						}
-						if (!defrag_info)
-							spin_unlock_bh(&rwnx_hw->defrag_lock);
-						else {
+						spin_unlock_bh(&rwnx_hw->defrag_lock);
+
+						if (defrag_info) {
 							if (defrag_info->next_fn != frag_num) {
 								printk("discard:%d:%d\n", defrag_info->next_fn, frag_num);
 								dev_kfree_skb(skb);
-								spin_unlock_bh(&rwnx_hw->defrag_lock);
 								return 0;
 							}
 
@@ -2149,27 +2029,25 @@ check_len_update:
 							defrag_info->frm_len += (skb->len - (pull_len-8));
 							is_frag = 1;
 							//printk("last: sn=%d, fn=%d, %d, %d\r\n", seq_num, frag_num, defrag_info->frm_len, skb->len);
+							dev_kfree_skb(skb);
 
 							rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
 							if (!rwnx_vif) {
 								printk("Frame received but no active vif (%d)", hw_rxhdr->flags_vif_idx);
 								dev_kfree_skb(skb);
-								spin_unlock_bh(&rwnx_hw->defrag_lock);
 								return 0;
 							}
 
-							dev_kfree_skb(skb);
+							if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, defrag_info->skb, hw_rxhdr))
+								dev_kfree_skb(defrag_info->skb);
 
-							skb_tmp = defrag_info->skb;
+							spin_lock_bh(&rwnx_hw->defrag_lock);
 							list_del_init(&defrag_info->list);
+							spin_unlock_bh(&rwnx_hw->defrag_lock);
 							if (timer_pending(&defrag_info->defrag_timer)) {
 								ret = del_timer(&defrag_info->defrag_timer);
 							}
 							kfree(defrag_info);
-							spin_unlock_bh(&rwnx_hw->defrag_lock);
-
-							if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb_tmp, hw_rxhdr))
-								dev_kfree_skb(skb_tmp);
 
 							return 0;
 						}
@@ -2177,7 +2055,7 @@ check_len_update:
 				}
 			}
 
-			if (!is_frag && !is_amsdu) {
+			if (!is_frag) {
 				skb_pull(skb, pull_len);
 				skb_push(skb, 14);
 				memcpy(skb->data, ra, MAC_ADDR_LEN);
@@ -2227,13 +2105,13 @@ check_len_update:
 
 			if ((rwnx_vif->wdev.iftype == NL80211_IFTYPE_STATION) || (rwnx_vif->wdev.iftype == NL80211_IFTYPE_P2P_CLIENT)) {
 				if (is_qos && hw_rxhdr->flags_need_reord)
-					reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 1, hw_rxhdr->flags_is_amsdu);
+					reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 1);
 				else if (is_qos  && !hw_rxhdr->flags_need_reord) {
 					 reord_flush_tid((struct aicwf_rx_priv *)rx_priv, skb, tid);
-					if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr) && !hw_rxhdr->flags_is_amsdu)
+					if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr))
 						dev_kfree_skb(skb);
 				} else {
-					if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr) && !hw_rxhdr->flags_is_amsdu)
+					if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr))
 						dev_kfree_skb(skb);
 				}
 			} else if ((rwnx_vif->wdev.iftype == NL80211_IFTYPE_AP) || (rwnx_vif->wdev.iftype == NL80211_IFTYPE_P2P_GO)) {
@@ -2263,20 +2141,20 @@ check_len_update:
 
 				if (forward) {
 					if (is_qos && hw_rxhdr->flags_need_reord)
-						reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 1, hw_rxhdr->flags_is_amsdu);
+						reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 1);
 					else if (is_qos  && !hw_rxhdr->flags_need_reord) {
 						reord_flush_tid((struct aicwf_rx_priv *)rx_priv, skb, tid);
 						rwnx_rx_data_skb_forward(rwnx_hw, rwnx_vif, skb, hw_rxhdr);
 					} else
 						rwnx_rx_data_skb_forward(rwnx_hw, rwnx_vif, skb, hw_rxhdr);
-				} else if (resend) {
+				} else if(resend) {
 					if (is_qos && hw_rxhdr->flags_need_reord)
-						reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 0, hw_rxhdr->flags_is_amsdu);
+						reord_process_unit((struct aicwf_rx_priv *)rx_priv, skb, seq_num, tid, 0);
 					else if (is_qos  && !hw_rxhdr->flags_need_reord) {
 						reord_flush_tid((struct aicwf_rx_priv *)rx_priv, skb, tid);
 						dev_kfree_skb(skb);
-					}
-				} else
+					} 
+				}else
 					dev_kfree_skb(skb);
 #else
 				if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr))

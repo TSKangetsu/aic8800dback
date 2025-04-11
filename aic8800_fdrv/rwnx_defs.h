@@ -30,7 +30,6 @@
 #include "rwnx_platform.h"
 #include "rwnx_cmds.h"
 #include "rwnx_gki.h"
-#include "aic_bsp_export.h"
 
 #ifdef AICWF_SDIO_SUPPORT
 #include "aicwf_sdio.h"
@@ -53,14 +52,6 @@
 
 #define PS_SP_INTERRUPTED  255
 #define MAC_ADDR_LEN 6
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-#define IEEE80211_MAX_AMPDU_BUF                             IEEE80211_MAX_AMPDU_BUF_HE
-#define IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB         IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB
-#define IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB         IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB
-#define IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA IEEE80211_HE_PHY_CAP3_RX_PARTIAL_BW_SU_IN_20MHZ_MU
-#endif
-
 /**
  * struct rwnx_bcn - Information of the beacon in used (AP mode)
  *
@@ -135,13 +126,6 @@ struct rwnx_csa {
 	struct work_struct work;
 };
 
-struct apm_probe_sta {
-	u8 sta_mac_addr[6];
-	u8 vif_idx;
-	u64 probe_id;
-	struct work_struct apmprobestaWork;
-	struct workqueue_struct *apmprobesta_wq;
-};
 /// Possible States of the TDLS link.
 enum tdls_status_tag {
 		/// TDLS link is not active (no TDLS peer connected)
@@ -197,7 +181,6 @@ struct rwnx_vif {
 	struct net_device *ndev;
 	struct net_device_stats net_stats;
 	struct rwnx_key key[6];
-	atomic_t drv_conn_state;
 	u8 drv_vif_index;           /* Identifier of the VIF in driver */
 	u8 vif_index;               /* Identifier of the station in FW */
 	u8 ch_index;                /* Channel context identifier */
@@ -222,13 +205,6 @@ struct rwnx_vif {
 			bool external_auth;  /* Indicate if external authentication is in progress */
 			u32 group_cipher_type;
 			u32 paired_cipher_type;
-			//connected network info start
-			char ssid[33];//ssid max is 32, but this has one spare for '\0'
-			int ssid_len;
-			u8 bssid[ETH_ALEN];
-			u32 conn_owner_nlportid;
-			bool is_roam;
-			//connected network info end
 		} sta;
 		struct {
 			u16 flags;                 /* see rwnx_ap_flags */
@@ -253,7 +229,6 @@ struct rwnx_vif {
 
 	u8_l key_has_add;
 	u8_l is_p2p_vif;
-	struct apm_probe_sta sta_probe;
 };
 
 #define RWNX_VIF_TYPE(rwnx_vif) (rwnx_vif->wdev.iftype)
@@ -431,28 +406,20 @@ struct rwnx_phy_info {
 
 
 struct defrag_ctrl_info {
-	struct list_head list;
-	u8 sta_idx;
-	u8 tid;
-	u16 sn;
-	u8 next_fn;
-	u16 frm_len;
-	struct sk_buff *skb;
-	struct timer_list defrag_timer;
-	struct rwnx_hw *rwnx_hw;
+    struct list_head list;
+    u8 sta_idx;
+    u8 tid;
+    u16 sn;
+    u8 next_fn;
+    u16 frm_len;
+    struct sk_buff *skb;
+    struct timer_list defrag_timer;
 };
 
 struct amsdu_subframe_hdr {
-	u8 da[6];
-	u8 sa[6];
-	u16 sublen;
-};
-
-enum rwnx_drv_connect_status {
-	RWNX_DRV_STATUS_DISCONNECTED = 0,
-	RWNX_DRV_STATUS_DISCONNECTING,
-	RWNX_DRV_STATUS_CONNECTING,
-	RWNX_DRV_STATUS_CONNECTED,
+    u8 da[6];
+    u8 sa[6];
+    u16 sublen;
 };
 
 struct rwnx_hw {
@@ -470,9 +437,6 @@ struct rwnx_hw {
 	struct rwnx_sta sta_table[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
 	struct rwnx_survey_info survey[SCAN_CHANNEL_MAX];
 	struct cfg80211_scan_request *scan_request;
-#ifdef CONFIG_SCHED_SCAN
-	struct cfg80211_sched_scan_request *sched_scan_req;
-#endif
 	struct rwnx_chanctx chanctx_table[NX_CHAN_CTXT_CNT];
 	u8 cur_chanctx;
 
@@ -512,7 +476,7 @@ struct rwnx_hw {
 	struct rwnx_ipc_dbgdump_elem dbgdump_elem;
 	struct rwnx_ipc_elem_pool e2arxdesc_pool;
 	struct rwnx_ipc_skb_elem *e2aunsuprxvec_elems;
-	//struct rwnx_ipc_rxbuf_elems rxbuf_elems;
+	struct rwnx_ipc_rxbuf_elems rxbuf_elems;
 	struct rwnx_ipc_elem_var scan_ie;
 
 	struct kmem_cache      *sw_txhdr_cache;
@@ -544,30 +508,14 @@ struct rwnx_hw {
 	bool band_5g_support;
 	u8_l vendor_info;
 	bool fwlog_en;
-	u16  chipid;
-	u8   cpmode;
-	u16 rev;
-	u16 subrev;
-
+	
 	struct list_head defrag_list;
 	spinlock_t defrag_lock;
 
-	struct work_struct apmStalossWork;
-	struct workqueue_struct *apmStaloss_wq;
-	u8 apm_vif_idx;
-	u8 sta_mac_addr[6];
-
-	struct wakeup_source *ws_rx;
-	struct wakeup_source *ws_irqrx;
-	struct wakeup_source *ws_tx;
-	struct wakeup_source *ws_pwrctrl;
-
-	u8 wakeup_enable;
-	u32 hostwake_irq_num;
-#ifdef CONFIG_SCHED_SCAN
-	bool is_sched_scan;
-#endif
-	bool irq_enable;
+    struct work_struct apmStalossWork;
+    struct workqueue_struct *apmStaloss_wq;
+    u8 apm_vif_idx;
+    u8 sta_mac_addr[6];
 };
 
 u8 *rwnx_build_bcn(struct rwnx_bcn *bcn, struct cfg80211_beacon_data *new);
@@ -579,13 +527,7 @@ int  rwnx_chanctx_valid(struct rwnx_hw *rwnx_hw, u8 idx);
 
 static inline bool is_multicast_sta(int sta_idx)
 {
-	if ((g_rwnx_plat->sdiodev->rwnx_hw->chipid == PRODUCT_ID_AIC8800D) ||
-		((g_rwnx_plat->sdiodev->rwnx_hw->chipid == PRODUCT_ID_AIC8800DC ||
-		g_rwnx_plat->sdiodev->rwnx_hw->chipid == PRODUCT_ID_AIC8800DW) && (g_rwnx_plat->sdiodev->rwnx_hw->rev < CHIP_REV_ID_U02))) {
-		return (sta_idx >= NX_REMOTE_STA_MAX_FOR_OLD_IC);
-	} else {
-		return (sta_idx >= NX_REMOTE_STA_MAX);
-	}
+	return (sta_idx >= NX_REMOTE_STA_MAX);
 }
 struct rwnx_sta *rwnx_get_sta(struct rwnx_hw *rwnx_hw, const u8 *mac_addr);
 

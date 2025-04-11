@@ -1320,6 +1320,7 @@ DEFINE_EVENT(ipc_msg_template, msg_recv,
 
 #undef TRACE_INCLUDE_PATH
 #undef TRACE_INCLUDE_FILE
-#define TRACE_INCLUDE_PATH .
+//#define TRACE_INCLUDE_PATH .
+#define TRACE_INCLUDE_PATH AIC_TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_FILE rwnx_events
 #include <trace/define_trace.h>

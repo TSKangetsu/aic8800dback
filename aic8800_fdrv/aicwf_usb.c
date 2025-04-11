@@ -14,7 +14,6 @@
 #include "rwnx_defs.h"
 #include "usb_host.h"
 #include "rwnx_platform.h"
-#include "rwnx_wakelock.h"
 
 void aicwf_usb_tx_flowctrl(struct rwnx_hw *rwnx_hw, bool state)
 {
@@ -154,7 +153,6 @@ static void aicwf_usb_rx_complete(struct urb *urb)
 			spin_unlock_irqrestore(&rx_priv->rxqlock, flags);
 			usb_err("rx_priv->rxq is over flow!!!\n");
 			aicwf_dev_skb_free(skb);
-			aicwf_usb_rx_buf_put(usb_dev, usb_buf);
 			return;
 		}
 		spin_unlock_irqrestore(&rx_priv->rxqlock, flags);
@@ -299,10 +297,8 @@ int usb_bustx_thread(void *data)
 		if (!wait_for_completion_interruptible(&bus->bustx_trgg)) {
 			if (usbdev->bus_if->state == BUS_DOWN_ST)
 				continue;
-			rwnx_wakeup_lock(usbdev->rwnx_hw->ws_tx);
 			if (usbdev->tx_post_count > 0)
 				aicwf_usb_tx_process(usbdev);
-			rwnx_wakeup_unlock(usbdev->rwnx_hw->ws_tx);
 		}
 	}
 
@@ -313,7 +309,6 @@ int usb_busrx_thread(void *data)
 {
 	struct aicwf_rx_priv *rx_priv = (struct aicwf_rx_priv *)data;
 	struct aicwf_bus *bus_if = rx_priv->usbdev->bus_if;
-	struct aic_usb_dev *usbdev = rx_priv->usbdev;
 
 	while (1) {
 		if (kthread_should_stop()) {
@@ -323,9 +318,7 @@ int usb_busrx_thread(void *data)
 		if (!wait_for_completion_interruptible(&bus_if->busrx_trgg)) {
 			if (bus_if->state == BUS_DOWN_ST)
 				continue;
-			rwnx_wakeup_lock(usbdev->rwnx_hw->ws_rx);
 			aicwf_process_rxframes(rx_priv);
-			rwnx_wakeup_unlock(usbdev->rwnx_hw->ws_rx);
 		}
 	}
 
@@ -353,27 +346,18 @@ static int aicwf_usb_bus_txmsg(struct device *dev, u8 *buf, u32 len)
 	if (buf == NULL || len == 0 || usb_dev->msg_out_urb == NULL)
 		return -EINVAL;
 
+	if (test_and_set_bit(0, &usb_dev->msg_busy)) {
+		usb_err("In a control frame option, can't tx!\n");
+		return -EIO;
+	}
+
 	usb_dev->msg_finished = false;
 
-#ifdef CONFIG_USB_MSG_EP
-	if (usb_dev->msg_out_pipe) {
-		usb_fill_bulk_urb(usb_dev->msg_out_urb,
-			usb_dev->udev,
-			usb_dev->msg_out_pipe,
-			buf, len, (usb_complete_t) aicwf_usb_send_msg_complete, usb_dev);
-	} else {
-		usb_fill_bulk_urb(usb_dev->msg_out_urb,
-			usb_dev->udev,
-			usb_dev->bulk_out_pipe,
-			buf, len, (usb_complete_t) aicwf_usb_send_msg_complete, usb_dev);
-	}
-#else
 	usb_fill_bulk_urb(usb_dev->msg_out_urb,
 		usb_dev->udev,
 		usb_dev->bulk_out_pipe,
 		buf, len, (usb_complete_t) aicwf_usb_send_msg_complete, usb_dev);
 	usb_dev->msg_out_urb->transfer_flags |= URB_ZERO_PACKET;
-#endif
 
 	ret = usb_submit_urb(usb_dev->msg_out_urb, GFP_ATOMIC);
 	if (ret) {
@@ -397,6 +381,7 @@ static int aicwf_usb_bus_txmsg(struct device *dev, u8 *buf, u32 len)
 		goto exit;
 	}
 exit:
+	clear_bit(0, &usb_dev->msg_busy);
 	return ret;
 }
 
@@ -571,7 +556,7 @@ static int aicwf_usb_bus_txdata(struct device *dev, struct sk_buff *skb)
 	complete(&bus_if->bustx_trgg);
 	ret = 0;
 
-flow_ctrl:
+	flow_ctrl:
 	spin_lock_irqsave(&usb_dev->tx_flow_lock, flags);
 	if (usb_dev->tx_free_count < AICWF_USB_TX_LOW_WATER) {
 		usb_dev->tbusy = true;
@@ -713,10 +698,6 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 	usb_dev->bulk_in_pipe = 0;
 	usb_dev->bulk_out_pipe = 0;
 
-#ifdef CONFIG_USB_MSG_EP
-	usb_dev->msg_out_pipe = 0;
-#endif
-
 	host_interface = &interface->altsetting[0];
 	interface_desc = &host_interface->desc;
 	endpoints = interface_desc->bNumEndpoints;
@@ -776,10 +757,6 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 			usb_endpoint_xfer_bulk(endpoint)) {
 			if (!usb_dev->bulk_out_pipe) {
 				usb_dev->bulk_out_pipe = usb_sndbulkpipe(usb, endpoint_num);
-#ifdef CONFIG_USB_MSG_EP
-			} else if (!usb_dev->msg_out_pipe) {
-				usb_dev->msg_out_pipe = usb_sndbulkpipe(usb, endpoint_num);
-#endif
 			}
 		}
 	}
@@ -795,12 +772,6 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 		goto exit;
 	}
 
-#ifdef CONFIG_USB_MSG_EP
-	if (usb_dev->msg_out_pipe == 0) {
-		usb_err("No TX Msg (out) Bulk EP found\n");
-	}
-#endif
-
 	if (usb->speed == USB_SPEED_HIGH)
 		printk("Aic high speed USB device detected\n");
 	else
@@ -809,6 +780,8 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 	exit:
 	return ret;
 }
+
+
 
 static struct aicwf_bus_ops aicwf_usb_bus_ops = {
 	.start = aicwf_usb_bus_start,
@@ -961,7 +934,7 @@ static struct usb_driver aicwf_usbdrvr = {
 	.suspend = aicwf_usb_suspend,
 	.resume = aicwf_usb_resume,
 	.reset_resume = aicwf_usb_reset_resume,
-	.supports_autosuspend = 0,
+	.supports_autosuspend = 1,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
 	.disable_hub_initiated_lpm = 1,
 #endif

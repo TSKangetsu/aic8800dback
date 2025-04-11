@@ -11,6 +11,7 @@
 #include "rwnx_version_gen.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+
 static struct wifi_ring_buffer_status ring_buffer[] = {
 	{
 		.name            = "aicwf_ring_buffer0",
@@ -26,6 +27,7 @@ static struct wifi_ring_buffer_status ring_buffer[] = {
 static struct wlan_driver_wake_reason_cnt_t wake_reason_cnt = {
 	.total_cmd_event_wake = 10,
 };
+#endif
 
 int aic_dev_start_mkeep_alive(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 			u8 mkeep_alive_id, u8 *ip_pkt, u16 ip_pkt_len, u8 *src_mac, u8 *dst_mac, u32 period_msec)
@@ -73,6 +75,7 @@ int aic_dev_stop_mkeep_alive(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 	return res;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
 static int aicwf_vendor_start_mkeep_alive(struct wiphy *wiphy, struct wireless_dev *wdev,
 	const void *data, int len)
 {
@@ -224,7 +227,7 @@ static int aicwf_vendor_get_ver(struct wiphy *wiphy, struct wireless_dev *wdev,
 		return -ENOMEM;
 
 	if (nla_put(reply, attr,
-			payload, version)) {
+		    payload, version)) {
 		wiphy_err(wiphy, "%s put version error\n", __func__);
 		goto out_put_fail;
 	}
@@ -611,6 +614,7 @@ static int aicwf_vendor_sub_cmd_set_mac(struct wiphy *wiphy, struct wireless_dev
 
 	return ret;
 }
+#endif
 
 static const struct nla_policy
 aicwf_cfg80211_mkeep_alive_policy[MKEEP_ALIVE_ATTRIBUTE_MAX+1] = {
@@ -654,7 +658,7 @@ aicwf_cfg80211_subcmd_set_mac_policy[WIFI_VENDOR_ATTR_DRIVER_MAX + 1] = {
 	[0] = {.type = NLA_UNSPEC },
 	[WIFI_VENDOR_ATTR_DRIVER_MAC_ADDR] = { .type = NLA_MSECS, .len  = ETH_ALEN },
 };
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
 static int aicwf_dump_interface(struct wiphy *wiphy,
 				struct wireless_dev *wdev, struct sk_buff *skb,
 				const void *data, int data_len,
@@ -839,22 +843,11 @@ const struct wiphy_vendor_command aicwf_vendor_cmd[] = {
 		.policy = aicwf_cfg80211_subcmd_set_mac_policy,
 		.maxattr = WIFI_VENDOR_ATTR_DRIVER_MAX,
 #endif
-	},
-	{
-		{
-			.vendor_id = BRCM_OUI,
-			.subcmd = VENDOR_NL80211_SUBCMD_SET_MAC
-		},
-		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = aicwf_vendor_sub_cmd_set_mac,
-		.dumpit = aicwf_dump_interface,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = aicwf_cfg80211_subcmd_set_mac_policy,
-		.maxattr = WIFI_VENDOR_ATTR_DRIVER_MAX,
-#endif
-	},
+    },
 };
+#endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
 static const struct nl80211_vendor_cmd_info aicwf_vendor_events[] = {
 };
 #endif

@@ -15,7 +15,7 @@
 
 #define CMD_BUF_MAX                 1536
 #define TXPKT_BLOCKSIZE             512
-#define MAX_AGGR_TXPKT_LEN          (1536*4)
+#define MAX_AGGR_TXPKT_LEN          (1536*32)
 #define CMD_TX_TIMEOUT              5000
 #define TX_ALIGNMENT                4
 

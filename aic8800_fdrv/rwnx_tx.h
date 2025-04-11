@@ -129,9 +129,6 @@ struct rwnx_sw_txhdr {
 	size_t map_len;
 	dma_addr_t dma_addr;
 	struct txdesc_api desc;
-	u8 raw_frame;
-	u8 fixed_rate;
-	u16 rate_config;
 };
 
 /**

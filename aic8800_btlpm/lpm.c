@@ -146,7 +146,7 @@ static unsigned long flags;
 static struct tasklet_struct hostwake_task;
 
 /** Reception timer */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
 static void bluesleep_rx_timer_expire(struct timer_list *t);
 #else
 static void bluesleep_rx_timer_expire(unsigned long data);
@@ -392,22 +392,6 @@ static ssize_t bluesleep_write_proc_btwrite(struct file *file,
 	return count;
 }
 
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0)
-static const struct proc_ops lpm_fops = {
-	.proc_open	= bluesleep_lpm_proc_open,
-	.proc_read	= seq_read,
-	.proc_lseek	= seq_lseek,
-	.proc_release	= single_release,
-	.proc_write	= bluesleep_write_proc_lpm,
-};
-static const struct proc_ops btwrite_fops = {
-	.proc_open	= bluesleep_btwrite_proc_open,
-	.proc_read	= seq_read,
-	.proc_lseek	= seq_lseek,
-	.proc_release	= single_release,
-	.proc_write	= bluesleep_write_proc_btwrite,
-};
-#else
 static const struct file_operations lpm_fops = {
 	.owner		= THIS_MODULE,
 	.open		= bluesleep_lpm_proc_open,
@@ -424,7 +408,6 @@ static const struct file_operations btwrite_fops = {
 	.release	= single_release,
 	.write		= bluesleep_write_proc_btwrite,
 };
-#endif
 #else
 /**
  * Handles HCI device events.
@@ -485,7 +468,7 @@ static void bluesleep_tx_allow_sleep(void)
  * Clear BT_RXTIMER.
  * @param data Not used.
  */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
 static void bluesleep_rx_timer_expire(struct timer_list *t)
 #else
 static void bluesleep_rx_timer_expire(unsigned long data)
@@ -896,13 +879,7 @@ static int bluesleep_probe(struct platform_device *pdev)
 	bluesleep_uart_dev = sw_uart_get_pdev(uart_index);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-    bsi->ws = wakeup_source_register(dev, "bluesleep");
-#else
-	bsi->ws = wakeup_source_register("bluesleep");
-#endif
-
+	bsi->ws = wakeup_source_register(dev, "bluesleep");
 #else
 	wake_lock_init(&bsi->wake_lock, WAKE_LOCK_SUSPEND, "bluesleep");
 #endif
@@ -1051,7 +1028,7 @@ int bluesleep_init(struct platform_device *pdev)
 	spin_lock_init(&rw_lock);
 
 	/* Initialize timer */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
 	timer_setup(&rx_timer, bluesleep_rx_timer_expire, 0);
 #else
 	init_timer(&rx_timer);

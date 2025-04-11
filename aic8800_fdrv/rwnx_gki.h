@@ -1,9 +1,12 @@
 #ifndef __RWNX_GKI_H
 #define __RWNX_GKI_H
 
+#ifdef ANDROID_PLATFORM
+#include "net/wireless/core.h"
+#endif
+
 #if IS_ENABLED(CONFIG_GKI_OPT_FEATURES) && IS_ENABLED(CONFIG_ANDROID) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
 
-#include "net/wireless/core.h"
 
 bool rwnx_cfg80211_rx_spurious_frame(struct net_device *dev,
 				const u8 *addr, gfp_t gfp);
@@ -28,19 +31,9 @@ void rwnx_cfg80211_ch_switch_notify(struct cfg80211_registered_device *rdev,
 				enum nl80211_commands notif,
 				u8 count);
 
-void rwnx_cfg80211_ch_switch_started_notify(struct net_device *dev
-				, struct cfg80211_chan_def *chandef
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-				, unsigned int link_id
-#endif
-				, u8 count
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-				, bool quiet
-#endif
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 94))
-				, u16 punct_bitmap
-#endif
-				);
+void rwnx_cfg80211_ch_switch_started_notify(struct net_device *dev,
+				struct cfg80211_chan_def *chandef,
+				u8 count);
 
 int rwnx_regulatory_set_wiphy_regd_sync_rtnl(struct wiphy *wiphy,
 				struct ieee80211_regdomain *rd);
@@ -64,13 +57,7 @@ int rwnx_call_usermodehelper(const char *path, char **argv, char **envp, int wai
 #define rwnx_cfg80211_report_obss_beacon          cfg80211_report_obss_beacon
 #define rwnx_cfg80211_ch_switch_notify            cfg80211_ch_switch_notify
 #define rwnx_cfg80211_ch_switch_started_notify    cfg80211_ch_switch_started_notify
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-#define rwnx_regulatory_set_wiphy_regd_sync_rtnl  regulatory_set_wiphy_regd_sync
-#else
 #define rwnx_regulatory_set_wiphy_regd_sync_rtnl  regulatory_set_wiphy_regd_sync_rtnl
-#endif
-
 #define rwnx_skb_append                           skb_append
 #define rwnx_ieee80211_chandef_to_operating_class ieee80211_chandef_to_operating_class
 #define rwnx_call_usermodehelper                  call_usermodehelper

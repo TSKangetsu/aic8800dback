@@ -2524,7 +2524,7 @@ static const struct ieee80211_regdomain regdom_US = {
 			NL80211_RRF_DFS | 
 			NL80211_RRF_AUTO_BW | 0),
 		// 100 104 108 112 116 120 124 
-		REG_RULE_EXT(5490, 5650, 80, 0, 24, 0,
+		REG_RULE_EXT(5490, 5600, 80, 0, 24, 0,
 				NL80211_RRF_DFS | 0),
 		// 128 132 136 140
 		REG_RULE_EXT(5650, 5710, 40, 0, 24, 0,
@@ -2891,7 +2891,6 @@ const struct ieee80211_regdomain *reg_regdb[] = {
 	&regdom_YT,
 	&regdom_ZA,
 	&regdom_ZW,
-	NULL,
 };
 
 int reg_regdb_size = ARRAY_SIZE(reg_regdb);

@@ -117,10 +117,6 @@ struct aicwf_tx_priv {
 	atomic_t aggr_count;
 	u8 *head;
 	u8 *tail;
-
-	unsigned long tx_data_len;
-	ktime_t txtimebegin;
-	ktime_t txtimeend;
 };
 
 
@@ -152,10 +148,9 @@ struct reord_ctrl_info {
 struct recv_msdu {
 	 struct sk_buff  *pkt;
 	 u8  tid;
-	 u8 forward;
 	 u16 seq_num;
-	 //uint len;
-	 u32 is_amsdu;
+	 u8 forward;
+	 uint len;
 	 u8 *rx_data;
 	 //for pending rx reorder list
 	struct list_head reord_pending_list;
@@ -186,10 +181,6 @@ struct aicwf_rx_priv {
 	spinlock_t stas_reord_lock;
 	struct recv_msdu *recv_frames;
 #endif
-
-	unsigned long rx_data_len;
-	ktime_t rxtimebegin;
-	ktime_t rxtimeend;
 };
 
 static inline int aicwf_bus_start(struct aicwf_bus *bus)

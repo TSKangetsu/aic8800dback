@@ -19,7 +19,6 @@
 #include "rwnx_dini.h"
 #include "reg_access.h"
 #include "rwnx_compat.h"
-#include "aic_bsp_export.h"
 
 #ifdef CONFIG_RWNX_FULLMAC
 #define COMMON_PARAM(name, default_softmac, default_fullmac)    \
@@ -34,7 +33,7 @@ struct rwnx_mod_params rwnx_mod_params = {
 	COMMON_PARAM(vht_on, true, true)
 	COMMON_PARAM(he_on, true, true)
 	COMMON_PARAM(mcs_map, IEEE80211_VHT_MCS_SUPPORT_0_9, IEEE80211_VHT_MCS_SUPPORT_0_9)
-	COMMON_PARAM(he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_11, IEEE80211_HE_MCS_SUPPORT_0_11)
+	COMMON_PARAM(he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9, IEEE80211_HE_MCS_SUPPORT_0_9)
 	COMMON_PARAM(he_ul_on, false, false)
 	COMMON_PARAM(ldpc_on, true, true)
 	COMMON_PARAM(stbc_on, true, true)
@@ -54,7 +53,7 @@ struct rwnx_mod_params rwnx_mod_params = {
 	COMMON_PARAM(mutx, true, true)
 	COMMON_PARAM(mutx_on, true, true)
 	COMMON_PARAM(use_80, false, false)
-	COMMON_PARAM(custregd, false, false)
+	COMMON_PARAM(custregd, true, true)
 	COMMON_PARAM(custchan, false, false)
 	COMMON_PARAM(roc_dur_max, 500, 500)
 	COMMON_PARAM(listen_itv, 0, 0)
@@ -224,6 +223,18 @@ MODULE_PARM_DESC(ftl, "Firmware trace level  (Default: \"\")");
 module_param_named(dpsm, rwnx_mod_params.dpsm, bool, S_IRUGO);
 MODULE_PARM_DESC(dpsm, "Enable Dynamic PowerSaving (Default: 1-Enabled)");
 
+
+#ifdef DEFAULT_COUNTRY_CODE
+char default_ccode[4] = DEFAULT_COUNTRY_CODE;
+#else
+char default_ccode[4] = "00";
+#endif
+
+char country_code[4];
+module_param_string(country_code, country_code, 4, 0600);
+
+#if 0
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
 /* Regulatory rules */
 static struct ieee80211_regdomain rwnx_regdom = {
 	.n_reg_rules = 2,
@@ -233,6 +244,8 @@ static struct ieee80211_regdomain rwnx_regdom = {
 		REG_RULE(5150 - 10, 5970 + 10, 80, 0, 1000, 0),
 	}
 };
+#endif
+#endif
 
 static const int mcs_map_to_rate[4][3] = {
 	[PHY_CHNL_BW_20][IEEE80211_VHT_MCS_SUPPORT_0_7] = 65,
@@ -250,6 +263,105 @@ static const int mcs_map_to_rate[4][3] = {
 };
 
 #define MAX_VHT_RATE(map, nss, bw) (mcs_map_to_rate[bw][map] * (nss))
+
+extern struct ieee80211_regdomain *reg_regdb[];
+
+char ccode_channels[200];
+int index_for_channel_list = 0;
+module_param_string(ccode_channels, ccode_channels, 200, 0600);
+
+void rwnx_get_countrycode_channels(struct wiphy *wiphy, 
+		struct ieee80211_regdomain *regdomain){
+	enum nl80211_band band; 
+	struct ieee80211_supported_band *sband; 
+	int channel_index;
+	int rule_index;
+	int band_num = 0;
+	int rule_num = regdomain->n_reg_rules;
+	int start_freq = 0;
+	int end_freq = 0;
+	int center_freq = 0;
+	char channel[4];
+
+	band_num = NUM_NL80211_BANDS;
+
+	memset(ccode_channels, 0, 200);
+	index_for_channel_list = 0;
+
+	for (band = 0; band < band_num; band++) {
+		sband = wiphy->bands[band];// bands: 0:2.4G 1:5G 2:60G
+		if (!sband)
+			continue;
+		
+		for (channel_index = 0; channel_index < sband->n_channels; channel_index++) {
+			for(rule_index = 0; rule_index < rule_num; rule_index++){
+				start_freq = regdomain->reg_rules[rule_index].freq_range.start_freq_khz/1000;
+				end_freq = regdomain->reg_rules[rule_index].freq_range.end_freq_khz/1000;
+				center_freq = sband->channels[channel_index].center_freq;
+				if(center_freq >= start_freq && center_freq <= end_freq){
+					sprintf(channel, "%d",ieee80211_frequency_to_channel(center_freq));
+					memcpy(ccode_channels + index_for_channel_list, channel, strlen(channel));
+					index_for_channel_list += strlen(channel);
+					memcpy(ccode_channels + index_for_channel_list, " ", 1);
+					index_for_channel_list += 1;
+					break;
+				}
+			}
+		}
+	}
+	printk("%s support channel:%s\r\n", __func__, ccode_channels);
+}
+
+
+struct ieee80211_regdomain *getRegdomainFromRwnxDBIndex(struct wiphy *wiphy,
+	int index)
+{
+	u8 idx;
+
+	idx = index;
+
+	memset(country_code, 0, 4);
+	country_code[0] = reg_regdb[idx]->alpha2[0];
+	country_code[1] = reg_regdb[idx]->alpha2[1];
+	
+	printk("%s set ccode:%s \r\n", __func__, country_code);
+
+	rwnx_get_countrycode_channels(wiphy, reg_regdb[idx]);
+	
+	return reg_regdb[idx]; 
+}
+
+
+struct ieee80211_regdomain *getRegdomainFromRwnxDB(struct wiphy *wiphy,
+	char *alpha2)
+{
+	u8 idx;
+
+	memset(country_code, 0, 4);
+	
+	printk("%s set ccode:%s \r\n", __func__, alpha2);
+	idx = 0;
+
+	while (reg_regdb[idx]){
+		if((reg_regdb[idx]->alpha2[0] == alpha2[0]) &&
+			(reg_regdb[idx]->alpha2[1] == alpha2[1])){
+			memcpy(country_code, alpha2, 2);
+			rwnx_get_countrycode_channels(wiphy, reg_regdb[idx]);
+			return reg_regdb[idx];
+		}
+		idx++;
+	}
+
+	printk("%s(): Error, wrong country = %s\n",
+			__func__, alpha2);
+	printk("Set as default 00\n");
+	memcpy(country_code, default_ccode, sizeof(default_ccode));
+	rwnx_get_countrycode_channels(wiphy, reg_regdb[0]);
+	
+	return reg_regdb[0]; 
+}
+
+
 
 /**
  * Do some sanity check
@@ -888,14 +1000,8 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	he_cap->he_cap_elem.phy_cap_info[8] |= IEEE80211_HE_PHY_CAP8_20MHZ_IN_40MHZ_HE_PPDU_IN_2G;
 	he_cap->he_cap_elem.phy_cap_info[9] |= IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_COMP_SIGB |
 										   IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_NON_COMP_SIGB;
-
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		mcs_map = rwnx_hw->mod_params->he_mcs_map;
-	} else if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D || rwnx_hw->chipid == PRODUCT_ID_AIC8800DC ||
-		rwnx_hw->chipid == PRODUCT_ID_AIC8800DW) {
-		mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
-	}
-
+	//mcs_map = rwnx_hw->mod_params->he_mcs_map;
+	mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
 	memset(&he_cap->he_mcs_nss_supp, 0, sizeof(he_cap->he_mcs_nss_supp));
 	for (i = 0; i < nss; i++) {
 		__le16 unsup_for_ss = cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << (i*2));
@@ -980,15 +1086,9 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	#endif
 	if (rwnx_hw->mod_params->stbc_on)
 		he_cap->he_cap_elem.phy_cap_info[2] |= IEEE80211_HE_PHY_CAP2_STBC_RX_UNDER_80MHZ;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
-	he_cap->he_cap_elem.phy_cap_info[3] |= IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM |
-										   IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_1 |
-										   IEEE80211_HE_PHY_CAP3_RX_PARTIAL_BW_SU_IN_20MHZ_MU;
-#else
 	he_cap->he_cap_elem.phy_cap_info[3] |= IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM |
 										   IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_1 |
 										   IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA;
-#endif
 	if (rwnx_hw->mod_params->bfmee) {
 		he_cap->he_cap_elem.phy_cap_info[4] |= IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE;
 		he_cap->he_cap_elem.phy_cap_info[4] |=
@@ -996,35 +1096,20 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	}
 	he_cap->he_cap_elem.phy_cap_info[5] |= IEEE80211_HE_PHY_CAP5_NG16_SU_FEEDBACK |
 										   IEEE80211_HE_PHY_CAP5_NG16_MU_FEEDBACK;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
-	he_cap->he_cap_elem.phy_cap_info[6] |= IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
-										   IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
-										   IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB |
-										   IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB |
-										   IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT |
-										   IEEE80211_HE_PHY_CAP6_PARTIAL_BANDWIDTH_DL_MUMIMO;
-#else
 	he_cap->he_cap_elem.phy_cap_info[6] |= IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
 										   IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
 										   IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB |
 										   IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB |
 										   IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT |
 										   IEEE80211_HE_PHY_CAP6_PARTIAL_BANDWIDTH_DL_MUMIMO;
-#endif
 	he_cap->he_cap_elem.phy_cap_info[7] |= IEEE80211_HE_PHY_CAP7_HE_SU_MU_PPDU_4XLTF_AND_08_US_GI;
 	he_cap->he_cap_elem.phy_cap_info[8] |= IEEE80211_HE_PHY_CAP8_20MHZ_IN_40MHZ_HE_PPDU_IN_2G;
 	#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 	he_cap->he_cap_elem.phy_cap_info[9] |= IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_COMP_SIGB |
 										   IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_NON_COMP_SIGB;
 	#endif
-
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		mcs_map = rwnx_hw->mod_params->he_mcs_map;
-	} else if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D || rwnx_hw->chipid == PRODUCT_ID_AIC8800DC ||
-		rwnx_hw->chipid == PRODUCT_ID_AIC8800DW) {
-		mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
-	}
-
+	//mcs_map = rwnx_hw->mod_params->he_mcs_map;
+	mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
 	memset(&he_cap->he_mcs_nss_supp, 0, sizeof(he_cap->he_mcs_nss_supp));
 	for (i = 0; i < nss; i++) {
 		__le16 unsup_for_ss = cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << (i*2));
@@ -1090,15 +1175,9 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 		#endif
 		if (rwnx_hw->mod_params->stbc_on)
 			he_cap->he_cap_elem.phy_cap_info[2] |= IEEE80211_HE_PHY_CAP2_STBC_RX_UNDER_80MHZ;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
-		he_cap->he_cap_elem.phy_cap_info[3] |= IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM |
-											   IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_1 |
-											   IEEE80211_HE_PHY_CAP3_RX_PARTIAL_BW_SU_IN_20MHZ_MU;
-#else
 		he_cap->he_cap_elem.phy_cap_info[3] |= IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM |
 											   IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_1 |
 											   IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA;
-#endif
 		if (rwnx_hw->mod_params->bfmee) {
 			he_cap->he_cap_elem.phy_cap_info[4] |= IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE;
 			he_cap->he_cap_elem.phy_cap_info[4] |=
@@ -1106,35 +1185,20 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 		}
 		he_cap->he_cap_elem.phy_cap_info[5] |= IEEE80211_HE_PHY_CAP5_NG16_SU_FEEDBACK |
 											   IEEE80211_HE_PHY_CAP5_NG16_MU_FEEDBACK;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
-		he_cap->he_cap_elem.phy_cap_info[6] |= IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
-											   IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
-											   IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB |
-											   IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB |
-											   IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT |
-											   IEEE80211_HE_PHY_CAP6_PARTIAL_BANDWIDTH_DL_MUMIMO;
-#else
 		he_cap->he_cap_elem.phy_cap_info[6] |= IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU |
 											   IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU |
 											   IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB |
 											   IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB |
 											   IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT |
 											   IEEE80211_HE_PHY_CAP6_PARTIAL_BANDWIDTH_DL_MUMIMO;
-#endif
 		he_cap->he_cap_elem.phy_cap_info[7] |= IEEE80211_HE_PHY_CAP7_HE_SU_MU_PPDU_4XLTF_AND_08_US_GI;
 		he_cap->he_cap_elem.phy_cap_info[8] |= IEEE80211_HE_PHY_CAP8_20MHZ_IN_40MHZ_HE_PPDU_IN_2G;
 		#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
 		he_cap->he_cap_elem.phy_cap_info[9] |= IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_COMP_SIGB |
 											   IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_NON_COMP_SIGB;
 		#endif
-
-		if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-			mcs_map = rwnx_hw->mod_params->he_mcs_map;
-		} else if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D || rwnx_hw->chipid == PRODUCT_ID_AIC8800DC ||
-			rwnx_hw->chipid == PRODUCT_ID_AIC8800DW) {
-			mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
-		}
-
+		//mcs_map = rwnx_hw->mod_params->he_mcs_map;
+		mcs_map = min_t(int, rwnx_hw->mod_params->he_mcs_map, IEEE80211_HE_MCS_SUPPORT_0_9);
 		memset(&he_cap->he_mcs_nss_supp, 0, sizeof(he_cap->he_mcs_nss_supp));
 		for (i = 0; i < nss; i++) {
 			__le16 unsup_for_ss = cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << (i*2));
@@ -1170,6 +1234,10 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 
 static void rwnx_set_wiphy_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0))
+		struct ieee80211_regdomain *regdomain;
+#endif
+
 #ifdef CONFIG_RWNX_FULLMAC
 	/* FULLMAC specific parameters */
 	wiphy->flags |= WIPHY_FLAG_REPORTS_OBSS;
@@ -1196,6 +1264,43 @@ static void rwnx_set_wiphy_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 		wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
 #endif
 
+if (rwnx_hw->mod_params->custregd) {
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+        // Apply custom regulatory. Note that for recent kernel versions we use instead the
+        // REGULATORY_WIPHY_SELF_MANAGED flag, along with the regulatory_set_wiphy_regd()
+        // function, that needs to be called after wiphy registration
+        memcpy(country_code, default_ccode, sizeof(default_ccode));
+		regdomain = getRegdomainFromRwnxDB(wiphy, default_ccode);
+        printk(KERN_CRIT
+               "\n\n%s: CAUTION: USING PERMISSIVE CUSTOM REGULATORY RULES\n\n",
+               __func__);
+        wiphy->regulatory_flags |= REGULATORY_CUSTOM_REG;
+        wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
+        wiphy_apply_custom_regulatory(wiphy, regdomain);
+#elif (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
+        memcpy(country_code, default_ccode, sizeof(default_ccode));
+		regdomain = getRegdomainFromRwnxDB(wiphy, default_ccode);
+		printk(KERN_CRIT"%s: Registering custom regulatory\n", __func__);
+		wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
+		wiphy_apply_custom_regulatory(wiphy, regdomain);
+#endif
+        // Check if custom channel set shall be enabled. In such case only monitor mode is
+        // supported
+        if (rwnx_hw->mod_params->custchan) {
+            wiphy->interface_modes = BIT(NL80211_IFTYPE_MONITOR);
+
+            // Enable "extra" channels
+            wiphy->bands[NL80211_BAND_2GHZ]->n_channels += 13;
+			//#ifdef USE_5G
+			if(rwnx_hw->band_5g_support){
+            	wiphy->bands[NL80211_BAND_5GHZ]->n_channels += 59;
+			}
+			//#endif
+        }
+    }
+
+#if 0
 	if (rwnx_hw->mod_params->custregd) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
 		// Apply custom regulatory. Note that for recent kernel versions we use instead the
@@ -1219,6 +1324,7 @@ static void rwnx_set_wiphy_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 				wiphy->bands[NL80211_BAND_5GHZ]->n_channels += 59;
 		}
 	}
+#endif
 }
 
 #if 0
@@ -1309,15 +1415,6 @@ int rwnx_handle_dynparams(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	}
 #endif
 
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		rwnx_hw->mod_params->sgi80 = true;
-		rwnx_hw->mod_params->use_80 = true;
-	}
-
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		rwnx_hw->mod_params->use_80 = true;
-	}
-
 	/* Set wiphy parameters */
 	rwnx_set_wiphy_params(rwnx_hw, wiphy);
 	/* Set VHT capabilities */
@@ -1339,20 +1436,23 @@ void rwnx_custregd(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 // For older kernel version, the custom regulatory is applied before the wiphy
 // registration (in rwnx_set_wiphy_params()), so nothing has to be done here
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0)
-	if (!rwnx_hw->mod_params->custregd)
-		return;
+    if (!rwnx_hw->mod_params->custregd)
+        return;
 
-	wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
-	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
-
-	rtnl_lock();
-	if (rwnx_regulatory_set_wiphy_regd_sync_rtnl(wiphy, &rwnx_regdom))
-		wiphy_err(wiphy, "Failed to set custom regdomain\n");
-	else
-		wiphy_err(wiphy, "\n"
-				  "*******************************************************\n"
-				  "** CAUTION: USING PERMISSIVE CUSTOM REGULATORY RULES **\n"
-				  "*******************************************************\n");
-	 rtnl_unlock();
+    wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
+    wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
+	
+    rtnl_lock();
+    if (regulatory_set_wiphy_regd_sync_rtnl(wiphy, getRegdomainFromRwnxDB(wiphy, default_ccode))){
+        wiphy_err(wiphy, "Failed to set custom regdomain\n");
+    }
+    else{
+        wiphy_err(wiphy,"\n"
+                  "*******************************************************\n"
+                  "** CAUTION: USING PERMISSIVE CUSTOM REGULATORY RULES **\n"
+                  "*******************************************************\n");
+    }
+     rtnl_unlock();
 #endif
+
 }

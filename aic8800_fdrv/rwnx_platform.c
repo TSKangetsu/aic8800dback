@@ -11,11 +11,13 @@
 #include <linux/module.h>
 #include <linux/firmware.h>
 #include <linux/delay.h>
+#include <linux/vmalloc.h>
 
 #include "rwnx_platform.h"
 #include "reg_access.h"
 #include "hal_desc.h"
 #include "rwnx_main.h"
+#include "rwnx_pci.h"
 #ifndef CONFIG_RWNX_FHOST
 #include "ipc_host.h"
 #endif /* !CONFIG_RWNX_FHOST */
@@ -28,12 +30,6 @@
 #ifdef AICWF_USB_SUPPORT
 #include "aicwf_usb.h"
 #endif
-
-#ifdef AICWF_PCIE_SUPPORT
-#include "rwnx_pci.h"
-#endif
-
-#include "aic_bsp_export.h"
 
 struct rwnx_plat *g_rwnx_plat;
 
@@ -159,7 +155,7 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8 *fw_addr,
 #endif
 
 #ifndef CONFIG_ROM_PATCH_EN
-#if !defined(CONFIG_NANOPI_M4) && !defined(CONFIG_PLATFORM_ALLWINNER)
+#if 0// !defined(CONFIG_NANOPI_M4) && !defined(CONFIG_PLATFORM_ALLWINNER)
 /**
  * rwnx_plat_bin_fw_upload_2() - Load the requested binary FW into embedded side.
  *
@@ -229,10 +225,7 @@ static int rwnx_plat_bin_fw_upload_2(struct rwnx_hw *rwnx_hw, u32 fw_addr,
 
 typedef struct {
 	txpwr_idx_conf_t txpwr_idx;
-	txpwr_lvl_conf_v2_t txpwr_lvl_v2;
-	txpwr_lvl_conf_v3_t txpwr_lvl_v3;
 	txpwr_ofst_conf_t txpwr_ofst;
-	txpwr_ofst2x_conf_t txpwr_ofst2x;
 	xtal_cap_conf_t xtal_cap;
 } nvram_info_t;
 
@@ -249,39 +242,6 @@ nvram_info_t nvram_info = {
 		.ofdm256qam_5g    = 9,
 		.ofdm1024qam_5g   = 9
 	},
-	.txpwr_lvl_v2 = {
-		.enable             = 1,
-		.pwrlvl_11b_11ag_2g4 = {
-		// 1M, 2M, 5M5, 11M, 6M, 9M, 12M, 18M, 24M, 36M, 48M, 54M
-			20, 20, 20,  20,  20, 20, 20,  20,  18,  18,  16,  16},
-		.pwrlvl_11n_11ac_2g4 = {
-		// MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9
-			20,   20,   20,   20,   18,   18,   16,   16,   16,   16},
-		.pwrlvl_11ax_2g4 = {
-		// MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9, MCS10, MCS11
-			20,   20,   20,   20,   18,   18,   16,   16,   16,   16,   15,    15},
-	},
-	.txpwr_lvl_v3 = {
-		.enable             = 1,
-		.pwrlvl_11b_11ag_2g4 =
-			//1M,   2M,   5M5,  11M,  6M,   9M,   12M,  18M,  24M,  36M,  48M,  54M
-			{ 20,   20,   20,   20,   20,   20,   20,   20,   18,   18,   16,   16},
-		.pwrlvl_11n_11ac_2g4 =
-			//MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9
-			{ 20,   20,   20,   20,   18,   18,   16,   16,   16,   16},
-		.pwrlvl_11ax_2g4 =
-			//MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9, MCS10,MCS11
-			{ 20,   20,   20,   20,   18,   18,   16,   16,   16,   16,   15,   15},
-		 .pwrlvl_11a_5g =
-			//NA,   NA,   NA,   NA,   6M,   9M,   12M,  18M,  24M,  36M,  48M,  54M
-			{ 0x80, 0x80, 0x80, 0x80, 20,   20,   20,   20,   18,   18,   16,   16},
-		.pwrlvl_11n_11ac_5g =
-			//MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9
-			{ 20,   20,   20,   20,   18,   18,   16,   16,   16,   15},
-		.pwrlvl_11ax_5g =
-			//MCS0, MCS1, MCS2, MCS3, MCS4, MCS5, MCS6, MCS7, MCS8, MCS9, MCS10,MCS11
-			{ 20,   20,   20,   20,   18,   18,   16,   16,   16,   15,   14,   14},
-	},
 	.txpwr_ofst = {
 		.enable       = 1,
 		.chan_1_4     = 0,
@@ -292,35 +252,12 @@ nvram_info_t nvram_info = {
 		.chan_122_140 = 0,
 		.chan_142_165 = 0,
 	},
-	.txpwr_ofst2x = {
-		 .enable      = 0,
-		 .pwrofst2x_tbl_2g4 = { // ch1-4, ch5-9, ch10-13
-			{ 0,  0,  0}, // 11b
-			{ 0,  0,  0}, // ofdm_highrate
-			{ 0,  0,  0}, // ofdm_lowrate
-		},
-		.pwrofst2x_tbl_5g   = { // ch42,  ch58, ch106,ch122,ch138,ch155
-			{ 0,  0,  0,  0,  0,  0}, // ofdm_lowrate
-			{ 0,  0,  0,  0,  0,  0}, // ofdm_highrate
-			{ 0,  0,  0,  0,  0,  0}, // ofdm_midrate
-		},
-	},
 	.xtal_cap = {
-		.enable        = 0,
-		.xtal_cap      = 24,
-		.xtal_cap_fine = 31,
-	},
+        .enable        = 0,
+        .xtal_cap      = 24,
+        .xtal_cap_fine = 31,
+    },
 };
-
-void get_userconfig_txpwr_lvl_v2(txpwr_lvl_conf_v2_t *txpwr_lvl_v2)
-{
-	memcpy(txpwr_lvl_v2, &(nvram_info.txpwr_lvl_v2), sizeof(txpwr_lvl_conf_v2_t));
-}
-
-void get_userconfig_txpwr_lvl_v3(txpwr_lvl_conf_v3_t *txpwr_lvl_v3)
-{
-	memcpy(txpwr_lvl_v3, &(nvram_info.txpwr_lvl_v3), sizeof(txpwr_lvl_conf_v3_t));
-}
 
 void get_userconfig_txpwr_idx(txpwr_idx_conf_t *txpwr_idx)
 {
@@ -332,15 +269,15 @@ void get_userconfig_txpwr_ofst(txpwr_ofst_conf_t *txpwr_ofst)
 	memcpy(txpwr_ofst, &(nvram_info.txpwr_ofst), sizeof(txpwr_ofst_conf_t));
 }
 
-void get_userconfig_txpwr_ofst2x(txpwr_ofst2x_conf_t *txpwr_ofst2x)
-{
-	memcpy(txpwr_ofst2x, &(nvram_info.txpwr_ofst2x), sizeof(txpwr_ofst2x_conf_t));
-}
-
 void get_userconfig_xtal_cap(xtal_cap_conf_t *xtal_cap)
 {
-	memcpy(xtal_cap, &(nvram_info.xtal_cap), sizeof(xtal_cap_conf_t));
+    *xtal_cap = nvram_info.xtal_cap;
+
+    printk("%s:enable       :%d\r\n", __func__, xtal_cap->enable);
+    printk("%s:xtal_cap     :%d\r\n", __func__, xtal_cap->xtal_cap);
+    printk("%s:xtal_cap_fine:%d\r\n", __func__, xtal_cap->xtal_cap_fine);
 }
+
 
 #define MATCH_NODE(type, node, cfg_key) {cfg_key, offsetof(type, node)}
 
@@ -352,7 +289,6 @@ struct parse_match_t {
 static const char *parse_key_prefix[] = {
 	[0x01] = "module0_",
 	[0x21] = "module1_",
-	[0xFF] = "",
 };
 
 static const struct parse_match_t parse_match_tab[] = {
@@ -367,117 +303,6 @@ static const struct parse_match_t parse_match_tab[] = {
 	MATCH_NODE(nvram_info_t, txpwr_idx.ofdm256qam_5g,    "ofdm256qam_5g"),
 	MATCH_NODE(nvram_info_t, txpwr_idx.ofdm1024qam_5g,   "ofdm1024qam_5g"),
 
-	{"lvl_11b_11ag_1m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 0},
-	{"lvl_11b_11ag_2m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 1},
-	{"lvl_11b_11ag_5m5_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 2},
-	{"lvl_11b_11ag_11m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 3},
-	{"lvl_11b_11ag_6m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 4},
-	{"lvl_11b_11ag_9m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 5},
-	{"lvl_11b_11ag_12m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 6},
-	{"lvl_11b_11ag_18m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 7},
-	{"lvl_11b_11ag_24m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 8},
-	{"lvl_11b_11ag_36m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 9},
-	{"lvl_11b_11ag_48m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 10},
-	{"lvl_11b_11ag_54m_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11b_11ag_2g4) + 11},
-
-	{"lvl_11n_11ac_mcs0_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 0},
-	{"lvl_11n_11ac_mcs1_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 1},
-	{"lvl_11n_11ac_mcs2_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 2},
-	{"lvl_11n_11ac_mcs3_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 3},
-	{"lvl_11n_11ac_mcs4_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 4},
-	{"lvl_11n_11ac_mcs5_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 5},
-	{"lvl_11n_11ac_mcs6_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 6},
-	{"lvl_11n_11ac_mcs7_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 7},
-	{"lvl_11n_11ac_mcs8_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 8},
-	{"lvl_11n_11ac_mcs9_2g4", offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11n_11ac_2g4) + 9},
-
-	{"lvl_11ax_mcs0_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 0},
-	{"lvl_11ax_mcs1_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 1},
-	{"lvl_11ax_mcs2_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 2},
-	{"lvl_11ax_mcs3_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 3},
-	{"lvl_11ax_mcs4_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 4},
-	{"lvl_11ax_mcs5_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 5},
-	{"lvl_11ax_mcs6_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 6},
-	{"lvl_11ax_mcs7_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 7},
-	{"lvl_11ax_mcs8_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 8},
-	{"lvl_11ax_mcs9_2g4",    offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 9},
-	{"lvl_11ax_mcs10_2g4",   offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 10},
-	{"lvl_11ax_mcs11_2g4",   offsetof(nvram_info_t, txpwr_lvl_v2.pwrlvl_11ax_2g4) + 11},
-
-	{"lvl_11b_11ag_1m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 0},
-	{"lvl_11b_11ag_2m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 1},
-	{"lvl_11b_11ag_5m5_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 2},
-	{"lvl_11b_11ag_11m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 3},
-	{"lvl_11b_11ag_6m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 4},
-	{"lvl_11b_11ag_9m_2g4",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 5},
-	{"lvl_11b_11ag_12m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 6},
-	{"lvl_11b_11ag_18m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 7},
-	{"lvl_11b_11ag_24m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 8},
-	{"lvl_11b_11ag_36m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 9},
-	{"lvl_11b_11ag_48m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 10},
-	{"lvl_11b_11ag_54m_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11b_11ag_2g4) + 11},
-
-	{"lvl_11n_11ac_mcs0_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 0},
-	{"lvl_11n_11ac_mcs1_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 1},
-	{"lvl_11n_11ac_mcs2_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 2},
-	{"lvl_11n_11ac_mcs3_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 3},
-	{"lvl_11n_11ac_mcs4_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 4},
-	{"lvl_11n_11ac_mcs5_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 5},
-	{"lvl_11n_11ac_mcs6_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 6},
-	{"lvl_11n_11ac_mcs7_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 7},
-	{"lvl_11n_11ac_mcs8_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 8},
-	{"lvl_11n_11ac_mcs9_2g4", offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_2g4) + 9},
-
-	{"lvl_11ax_mcs0_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 0},
-	{"lvl_11ax_mcs1_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 1},
-	{"lvl_11ax_mcs2_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 2},
-	{"lvl_11ax_mcs3_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 3},
-	{"lvl_11ax_mcs4_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 4},
-	{"lvl_11ax_mcs5_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 5},
-	{"lvl_11ax_mcs6_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 6},
-	{"lvl_11ax_mcs7_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 7},
-	{"lvl_11ax_mcs8_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 8},
-	{"lvl_11ax_mcs9_2g4",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 9},
-	{"lvl_11ax_mcs10_2g4",    offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 10},
-	{"lvl_11ax_mcs11_2g4",    offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_2g4) + 11},
-
-	{"lvl_11a_1m_5g",         offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 0},
-	{"lvl_11a_2m_5g",         offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 1},
-	{"lvl_11a_5m5_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 2},
-	{"lvl_11a_11m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 3},
-	{"lvl_11a_6m_5g",         offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 4},
-	{"lvl_11a_9m_5g",         offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 5},
-	{"lvl_11a_12m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 6},
-	{"lvl_11a_18m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 7},
-	{"lvl_11a_24m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 8},
-	{"lvl_11a_36m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 9},
-	{"lvl_11a_48m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 10},
-	{"lvl_11a_54m_5g",        offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11a_5g) + 11},
-
-	{"lvl_11n_11ac_mcs0_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 0},
-	{"lvl_11n_11ac_mcs1_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 1},
-	{"lvl_11n_11ac_mcs2_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 2},
-	{"lvl_11n_11ac_mcs3_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 3},
-	{"lvl_11n_11ac_mcs4_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 4},
-	{"lvl_11n_11ac_mcs5_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 5},
-	{"lvl_11n_11ac_mcs6_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 6},
-	{"lvl_11n_11ac_mcs7_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 7},
-	{"lvl_11n_11ac_mcs8_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 8},
-	{"lvl_11n_11ac_mcs9_5g",  offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11n_11ac_5g) + 9},
-
-	{"lvl_11ax_mcs0_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 0},
-	{"lvl_11ax_mcs1_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 1},
-	{"lvl_11ax_mcs2_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 2},
-	{"lvl_11ax_mcs3_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 3},
-	{"lvl_11ax_mcs4_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 4},
-	{"lvl_11ax_mcs5_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 5},
-	{"lvl_11ax_mcs6_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 6},
-	{"lvl_11ax_mcs7_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 7},
-	{"lvl_11ax_mcs8_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 8},
-	{"lvl_11ax_mcs9_5g",      offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 9},
-	{"lvl_11ax_mcs10_5g",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 10},
-	{"lvl_11ax_mcs11_5g",     offsetof(nvram_info_t, txpwr_lvl_v3.pwrlvl_11ax_5g) + 11},
-
 	MATCH_NODE(nvram_info_t, txpwr_ofst.enable,          "ofst_enable"),
 	MATCH_NODE(nvram_info_t, txpwr_ofst.chan_1_4,        "ofst_chan_1_4"),
 	MATCH_NODE(nvram_info_t, txpwr_ofst.chan_5_9,        "ofst_chan_5_9"),
@@ -486,38 +311,10 @@ static const struct parse_match_t parse_match_tab[] = {
 	MATCH_NODE(nvram_info_t, txpwr_ofst.chan_100_120,    "ofst_chan_100_120"),
 	MATCH_NODE(nvram_info_t, txpwr_ofst.chan_122_140,    "ofst_chan_122_140"),
 	MATCH_NODE(nvram_info_t, txpwr_ofst.chan_142_165,    "ofst_chan_142_165"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.enable,        "ofst2x_enable"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[0][0], "ofst_2g4_11b_chan_1_4"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[0][1], "ofst_2g4_11b_chan_5_9"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[0][2], "ofst_2g4_11b_chan_10_13"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[1][0], "ofst_2g4_ofdm_highrate_chan_1_4"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[1][1], "ofst_2g4_ofdm_highrate_chan_5_9"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[1][2], "ofst_2g4_ofdm_highrate_chan_10_13"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[2][0], "ofst_2g4_ofdm_lowrate_chan_1_4"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[2][1], "ofst_2g4_ofdm_lowrate_chan_5_9"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_2g4[2][2], "ofst_2g4_ofdm_lowrate_chan_10_13"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][0],  "ofst_5g_ofdm_lowrate_chan_42"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][1],  "ofst_5g_ofdm_lowrate_chan_58"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][2],  "ofst_5g_ofdm_lowrate_chan_106"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][3],  "ofst_5g_ofdm_lowrate_chan_122"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][4],  "ofst_5g_ofdm_lowrate_chan_138"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[0][5],  "ofst_5g_ofdm_lowrate_chan_155"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][0],  "ofst_5g_ofdm_highrate_chan_42"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][1],  "ofst_5g_ofdm_highrate_chan_58"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][2],  "ofst_5g_ofdm_highrate_chan_106"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][3],  "ofst_5g_ofdm_highrate_chan_122"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][4],  "ofst_5g_ofdm_highrate_chan_138"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[1][5],  "ofst_5g_ofdm_highrate_chan_155"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][0],  "ofst_5g_ofdm_midrate_chan_42"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][1],  "ofst_5g_ofdm_midrate_chan_58"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][2],  "ofst_5g_ofdm_midrate_chan_106"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][3],  "ofst_5g_ofdm_midrate_chan_122"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][4],  "ofst_5g_ofdm_midrate_chan_138"),
-	MATCH_NODE(nvram_info_t, txpwr_ofst2x.pwrofst2x_tbl_5g[2][5],  "ofst_5g_ofdm_midrate_chan_155"),
 
-	MATCH_NODE(nvram_info_t, xtal_cap.enable,            "xtal_enable"),
-	MATCH_NODE(nvram_info_t, xtal_cap.xtal_cap,          "xtal_cap"),
-	MATCH_NODE(nvram_info_t, xtal_cap.xtal_cap_fine,     "xtal_cap_fine"),
+	MATCH_NODE(nvram_info_t, xtal_cap.enable,          	"xtal_enable"),
+	MATCH_NODE(nvram_info_t, xtal_cap.xtal_cap,        	"xtal_cap"),
+	MATCH_NODE(nvram_info_t, xtal_cap.xtal_cap_fine,    "xtal_cap_fine"),
 };
 
 static int parse_key_val(const char *str, const char *key, char *val)
@@ -587,109 +384,210 @@ void rwnx_plat_userconfig_parsing(struct rwnx_hw *rwnx_hw, char *buffer, int siz
 {
 	char conf[100], keyname[64];
 	char *line;
-	char *data;
-	int  i = 0, err, len = 0;
+        char *data;
+        int  i = 0, err, len = 0;
 	long val;
-	u8   efuse_idx = 0;
 
-	if (size <= 0) {
-		pr_err("Config buffer size %d error\n", size);
-		return;
-	}
+        if (size <= 0) {
+                pr_err("Config buffer size %d error\n", size);
+                return;
+        }
 
-	if (rwnx_hw->vendor_info > (sizeof(parse_key_prefix) / sizeof(parse_key_prefix[0]) - 1)) {
-		pr_err("Unsuppor vendor info config\n");
-		return;
-	}
-
-	efuse_idx = rwnx_hw->vendor_info;
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800DC ||
-		rwnx_hw->chipid == PRODUCT_ID_AIC8800DW ||
-		rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		efuse_idx = 0xFF;
-	} else  if (rwnx_hw->vendor_info == 0x00) {
-		printk("Empty efuse, using module0 config\n");
-		efuse_idx = 0x01;
+	printk("%s rwnx_hw->vendor_info:0x%02X \r\n", __func__, rwnx_hw->vendor_info);
+	if (rwnx_hw->vendor_info == 0x00 || 
+		(rwnx_hw->vendor_info > (sizeof(parse_key_prefix) / sizeof(parse_key_prefix[0]) - 1))) {
+		printk("Unsuppor vendor info config\n");
+		printk("Using module0 config\n");
+		rwnx_hw->vendor_info = 0x01;
+		//return;
 	}
 
 	data = vmalloc(size + 1);
-	if (!data) {
-		pr_err("vmalloc fail\n");
-		return;
-	}
+        if (!data) {
+                pr_err("vmalloc fail\n");
+                return;
+        }
 
-	memcpy(data, buffer, size);
-	buffer = data;
+        memcpy(data, buffer, size);
+        buffer = data;
 
 	while (1) {
 		line = buffer;
-		if (*line == 0)
-			break;
+                if (*line == 0)
+                       break;
 
-		while (*buffer != '\r' && *buffer != '\n' && *buffer != 0 && len++ < size)
-			buffer++;
+                while (*buffer != '\r' && *buffer != '\n' && *buffer != 0 && len++ < size)
+                        buffer++;
 
-		while ((*buffer == '\r' || *buffer == '\n') && len++ < size)
-			*buffer++ = 0;
+                while ((*buffer == '\r' || *buffer == '\n') && len++ < size)
+                        *buffer++ = 0;
 
-		if (len >= size)
-			*buffer = 0;
+                if (len >= size)
+                        *buffer = 0;
 
 		// store value to data struct
 		for (i = 0; i < sizeof(parse_match_tab) / sizeof(parse_match_tab[0]); i++) {
-			sprintf(&keyname[0], "%s%s", parse_key_prefix[efuse_idx], parse_match_tab[i].keyname);
+			sprintf(&keyname[0], "%s%s", parse_key_prefix[rwnx_hw->vendor_info], parse_match_tab[i].keyname);
 			if (parse_key_val(line, keyname, conf) == 0) {
 				err = kstrtol(conf, 0, &val);
-				*(unsigned char *)((unsigned long)&nvram_info + parse_match_tab[i].offset) = val;
+				*(unsigned long *)((unsigned long)&nvram_info + parse_match_tab[i].offset) = val;
 				printk("%s, %s = %ld\n",  __func__, parse_match_tab[i].keyname, val);
 				break;
 			}
 		}
-	}
 
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80) {
-		memcpy(&(nvram_info.txpwr_lvl_v3), &(nvram_info.txpwr_lvl_v2), sizeof(txpwr_lvl_conf_v2_t));
 	}
 	vfree(data);
 }
 
-#define FW_USERCONFIG_NAME_8800D    "aic_userconfig.txt"
-#define FW_USERCONFIG_NAME_8800DC   "aic8800dc/aic_userconfig_8800dc.txt"
-#ifdef CONFIG_HW_HT
-       #define FW_USERCONFIG_NAME_8800D80  "aic8800d80/aic_userconfig_8800d80-ht.txt"
-#else
-       #define FW_USERCONFIG_NAME_8800D80  "aic8800d80/aic_userconfig_8800d80.txt"
-#endif
-
-int rwnx_plat_userconfig_upload_android(struct rwnx_hw *rwnx_hw, char *filename)
+static int aic_load_firmware(u32 ** fw_buf, char *fw_path,const char *name, struct device *device)
 {
-	int size;
-	char *dst = NULL;
+    void *buffer=NULL;
+    char *path=NULL;
+    struct file *fp=NULL;
+    int size = 0, len=0, i=0;
+    ssize_t rdlen=0;
+    u32 *src=NULL, *dst = NULL;
 
-	const struct firmware *fw = NULL;
-	int ret = request_firmware(&fw, filename, NULL);
+    /* get the firmware path */
+    path = __getname();
+    if (!path){
+            *fw_buf=NULL;
+            return -1;
+    }
+
+	len = sprintf(path, "%s/%s",fw_path, name);
+
+    printk("%s :firmware path = %s  \n", __func__ ,path);
+
+
+    /* open the firmware file */
+    fp=filp_open(path, O_RDONLY, 0);
+    if(IS_ERR(fp) || (!fp)){
+		printk("%s: %s file failed to open\n", __func__, name);
+		if(IS_ERR(fp)){
+			printk("is_Err\n");
+		}
+		if((!fp)){
+			printk("null\n");
+		}
+		*fw_buf=NULL;
+		__putname(path);
+ 		fp=NULL;
+		return -1;
+    }
+
+    size = i_size_read(file_inode(fp));
+    if(size<=0){
+            printk("%s: %s file size invalid %d\n", __func__, name, size);
+            *fw_buf=NULL;
+            __putname(path);
+            filp_close(fp,NULL);
+            fp=NULL;
+            return -1;
+	}
+
+    /* start to read from firmware file */
+    buffer = vmalloc(size);
+    memset(buffer, 0, size);
+    if(!buffer){
+            *fw_buf=NULL;
+            __putname(path);
+            filp_close(fp,NULL);
+            fp=NULL;
+            return -1;
+    }
+
+
+    #if LINUX_VERSION_CODE > KERNEL_VERSION(4, 13, 16)
+    rdlen = kernel_read(fp, buffer, size, &fp->f_pos);
+    #else
+    rdlen = kernel_read(fp, fp->f_pos, buffer, size);
+    #endif
+
+    if(size != rdlen){
+            printk("%s: %s file rdlen invalid %d %d\n", __func__, name, (int)rdlen, size);
+            *fw_buf=NULL;
+            __putname(path);
+            filp_close(fp,NULL);
+            fp=NULL;
+            vfree(buffer);
+            buffer=NULL;
+            return -1;
+    }
+    if(rdlen > 0){
+            fp->f_pos += rdlen;
+            //printk("f_pos=%d\n", (int)fp->f_pos);
+    }
+
+
+   /*start to transform the data format*/
+    src = (u32*)buffer;
+    //printk("malloc dst\n");
+    dst = (u32*)vmalloc(size);
+    memset(dst, 0, size);
+
+    if(!dst){
+            *fw_buf=NULL;
+            __putname(path);
+            filp_close(fp,NULL);
+            fp=NULL;
+            vfree(buffer);
+            buffer=NULL;
+            return -1;
+    }
+
+    for(i=0;i<(size/4);i++){
+            dst[i] = src[i];
+    }
+
+    __putname(path);
+    filp_close(fp,NULL);
+    fp=NULL;
+    vfree(buffer);
+    buffer=NULL;
+    *fw_buf = dst;
+
+
+
+    return size;
+
+}
+
+
+
+#define FW_USERCONFIG_NAME       "aic_userconfig.txt"
+
+int rwnx_plat_userconfig_upload_android(struct rwnx_hw *rwnx_hw, char *fw_path, char *filename)
+{
+    int size;
+    u32 *dst=NULL;
 
 	printk("userconfig file path:%s \r\n", filename);
 
-	if (ret < 0) {
-		printk("Load %s fail\n", filename);
-		return ret;
-	}
+    /* load aic firmware */
+    size = aic_load_firmware(&dst, fw_path ,filename, NULL);
+    if(size <= 0){
+            printk("wrong size of firmware file\n");
+            vfree(dst);
+            dst = NULL;
+            return 0;
+    }
 
-	size = fw->size;
-	dst = (char *)fw->data;
-
-	if (size <= 0) {
-		printk("wrong size of firmware file\n");
-		release_firmware(fw);
-		return -1;
-	}
-
+	/* Copy the file on the Embedded side */
+    printk("### Upload %s userconfig, size=%d\n", filename, size);
+	
 	rwnx_plat_userconfig_parsing(rwnx_hw, (char *)dst, size);
 
-	release_firmware(fw);
+	if (dst) {
+        vfree(dst);
+        dst = NULL;
+    }
 
+	printk("userconfig download complete\n\n");	
+	
 	return 0;
+
 }
 
 /**
@@ -697,18 +595,12 @@ int rwnx_plat_userconfig_upload_android(struct rwnx_hw *rwnx_hw, char *filename)
  *
  * @rwnx_hw: Main driver data
  */
-static int rwnx_plat_fmac_load(struct rwnx_hw *rwnx_hw)
+static int rwnx_plat_fmac_load(struct rwnx_hw *rwnx_hw, char *fw_path)
 {
 	int ret = 0;
 
 	RWNX_DBG(RWNX_FN_ENTRY_STR);
-	if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D)
-		ret = rwnx_plat_userconfig_upload_android(rwnx_hw, FW_USERCONFIG_NAME_8800D);
-	else if (rwnx_hw->chipid == PRODUCT_ID_AIC8800DC)
-		ret = rwnx_plat_userconfig_upload_android(rwnx_hw, FW_USERCONFIG_NAME_8800DC);
-	else if (rwnx_hw->chipid == PRODUCT_ID_AIC8800D80)
-		ret = rwnx_plat_userconfig_upload_android(rwnx_hw, FW_USERCONFIG_NAME_8800D80);
-
+	ret = rwnx_plat_userconfig_upload_android(rwnx_hw, fw_path, FW_USERCONFIG_NAME);
 	return ret;
 }
 #endif /* !CONFIG_ROM_PATCH_EN */
@@ -944,7 +836,6 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 	struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
 	(void)ret;
 
-	pr_err("%s: %d fw=%s\n", __func__,__LINE__,FW_USERCONFIG_NAME_8800D80);
 	RWNX_DBG(RWNX_FN_ENTRY_STR);
 
 	if (rwnx_plat->enabled)
@@ -952,7 +843,7 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 
 	#ifndef CONFIG_ROM_PATCH_EN
 	#ifdef CONFIG_DOWNLOAD_FW
-	ret = rwnx_plat_fmac_load(rwnx_hw);
+	ret = rwnx_plat_fmac_load(rwnx_hw, (char*)config);
 	if (ret)
 		return ret;
 	#endif /* !CONFIG_ROM_PATCH_EN */
@@ -1040,7 +931,6 @@ void rwnx_platform_deinit(struct rwnx_hw *rwnx_hw)
 #endif
 }
 
-#ifdef AICWF_PCIE_SUPPORT
 /**
  * rwnx_platform_register_drv() - Register all possible platform drivers
  */
@@ -1057,7 +947,6 @@ void rwnx_platform_unregister_drv(void)
 {
 	return rwnx_pci_unregister_drv();
 }
-#endif
 
 struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
 {
@@ -1067,9 +956,7 @@ struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
 #ifdef AICWF_USB_SUPPORT
 	return rwnx_plat->usbdev->dev;
 #endif
-#ifdef AICWF_PCIE_SUPPORT
 	return &(rwnx_plat->pci_dev->dev);
-#endif
 }
 
 

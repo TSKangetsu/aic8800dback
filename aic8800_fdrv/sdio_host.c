@@ -87,7 +87,7 @@ void aicwf_sdio_host_tx_cfm_handler(struct sdio_host_env_tag *env, u32 *data)
 		// already at the good value to ensure that the test of FIFO full is correct
 		//uint32_t used_idx = env->txdesc_used_idx[queue_idx]++;
 		uint32_t used_idx = data[1];
-		uint64_t host_id = env->tx_host_id[queue_idx][used_idx % SDIO_TXDESC_CNT];
+		unsigned long host_id = env->tx_host_id[queue_idx][used_idx % SDIO_TXDESC_CNT];
 
 		// Reset the host id in the array
 		env->tx_host_id[queue_idx][used_idx % SDIO_TXDESC_CNT] = 0;
@@ -100,12 +100,12 @@ void aicwf_sdio_host_tx_cfm_handler(struct sdio_host_env_tag *env, u32 *data)
 			//break;
 		}
 		// set the cfm status
-		skb = (struct sk_buff *)(unsigned long)host_id;
+		skb = (struct sk_buff *)host_id;
 		txhdr = (struct rwnx_txhdr *)skb->data;
 		txhdr->hw_hdr.cfm.status = (union rwnx_hw_txstatus)data[0];
 		printk("sdio_host_tx_cfm_handler:used_idx=%d, 0x%p, status=%x\r\n", used_idx, env->pthis, txhdr->hw_hdr.cfm.status.value);
 		//if (env->cb.send_data_cfm(env->pthis, host_id) != 0)
-		if (rwnx_txdatacfm(env->pthis, (void *)(unsigned long)host_id) != 0) {
+		if (rwnx_txdatacfm(env->pthis, (void *)host_id) != 0) {
 			// No more confirmations, so put back the used index at its initial value
 			env->txdesc_used_idx[queue_idx] = used_idx;
 			env->tx_host_id[queue_idx][used_idx % SDIO_TXDESC_CNT] = host_id;

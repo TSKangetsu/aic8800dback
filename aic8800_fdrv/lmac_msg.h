@@ -54,11 +54,9 @@ enum {
 	TASK_RXU,
 	/// RM_task
 	TASK_RM,
-	/// TWT task
-	TASK_TWT,
 #if defined CONFIG_RWNX_FULLMAC || defined CONFIG_RWNX_FHOST
 	// This is used to define the last task that is running on the EMB processor
-	TASK_LAST_EMB = TASK_TWT,
+	TASK_LAST_EMB = TASK_RM,
 #else
 #error "Need to define SOFTMAC or FULLMAC"
 #endif
@@ -366,8 +364,8 @@ enum mm_msg_tag {
 	MM_GET_STA_INFO_REQ,
 	MM_GET_STA_INFO_CFM,
 
-	MM_SET_TXPWR_IDX_LVL_REQ,
-	MM_SET_TXPWR_IDX_LVL_CFM,
+	MM_SET_TXPWR_IDX_REQ,
+	MM_SET_TXPWR_IDX_CFM,
 
 	MM_SET_TXPWR_OFST_REQ,
 	MM_SET_TXPWR_OFST_CFM,
@@ -381,15 +379,7 @@ enum mm_msg_tag {
 	MM_SET_TXOP_CFM,
 
 	MM_GET_FW_VERSION_REQ,
-	MM_GET_FW_VERSION_CFM,
-
-	MM_SET_RESUME_RESTORE_REQ,
-	MM_SET_RESUME_RESTORE_CFM,
-
-	MM_GET_WIFI_DISABLE_REQ,
-	MM_GET_WIFI_DISABLE_CFM,
-
-	MM_CFG_RSSI_CFM,
+    MM_GET_FW_VERSION_CFM,
 
 	/// MAX number of messages
 	MM_MAX,
@@ -433,7 +423,6 @@ enum {
 enum mm_features {
 	/// Beaconing
 	MM_FEAT_BCN_BIT         = 0,
-/*
 	/// Autonomous Beacon Transmission
 	MM_FEAT_AUTOBCN_BIT,
 	/// Scan in LMAC
@@ -442,7 +431,6 @@ enum mm_features {
 	MM_FEAT_CMON_BIT,
 	/// Multi Role
 	MM_FEAT_MROLE_BIT,
-*/
 	/// Radar Detection
 	MM_FEAT_RADAR_BIT,
 	/// Power Save
@@ -450,15 +438,15 @@ enum mm_features {
 	/// UAPSD
 	MM_FEAT_UAPSD_BIT,
 	/// DPSM
-//	MM_FEAT_DPSM_BIT,
+	MM_FEAT_DPSM_BIT,
 	/// A-MPDU
 	MM_FEAT_AMPDU_BIT,
 	/// A-MSDU
 	MM_FEAT_AMSDU_BIT,
 	/// Channel Context
-//	MM_FEAT_CHNL_CTXT_BIT,
+	MM_FEAT_CHNL_CTXT_BIT,
 	/// Packet reordering
-//	MM_FEAT_REORD_BIT,
+	MM_FEAT_REORD_BIT,
 	/// P2P
 	MM_FEAT_P2P_BIT,
 	/// P2P Go
@@ -495,8 +483,6 @@ enum mm_features {
 	MM_FEAT_MON_DATA_BIT,
 	/// HE (802.11ax) support
 	MM_FEAT_HE_BIT,
-	/// TWT support
-	MM_FEAT_TWT_BIT,
 };
 
 /// Maximum number of words in the configuration buffer
@@ -724,8 +710,6 @@ struct mm_version_cfm {
 
 /// Structure containing the parameters of the @ref MM_STA_ADD_REQ message.
 struct mm_sta_add_req {
-	/// Bitfield showing some capabilities of the STA (@ref enum mac_sta_flags)
-	u32_l capa_flags;
 	/// Maximum A-MPDU size, in bytes, for HE frames
 	u32_l ampdu_size_max_he;
 	/// Maximum A-MPDU size, in bytes, for VHT frames
@@ -746,12 +730,6 @@ struct mm_sta_add_req {
 	bool_l tdls_sta_initiator;
 	/// Indicate if the TDLS Channel Switch is allowed
 	bool_l tdls_chsw_allowed;
-	/// nonTransmitted BSSID index, set to the BSSID index in case the STA added is an AP
-	/// that is a nonTransmitted BSSID. Should be set to 0 otherwise
-	u8_l bssid_index;
-	/// Maximum BSSID indicator, valid if the STA added is an AP that is a nonTransmitted
-	/// BSSID
-	u8_l max_bssid_ind;
 };
 
 /// Structure containing the parameters of the @ref MM_STA_ADD_CFM message.
@@ -1169,11 +1147,14 @@ struct mm_set_coex_req {
 };
 
 struct mm_set_rf_config_req {
-	u8_l table_sel;
-	u8_l table_ofst;
-	u8_l table_num;
-	u8_l deft_page;
-	u32_l data[64];
+	u8_l def_band;
+	u8_l config_type;
+	u16_l offset;
+	u16_l len;
+	u16_l set;
+	u32_l rx_gain_24g[48][4];
+	u32_l rx_gain_5g[32][4];
+	u32_l tx_gain[32];
 };
 
 struct mm_set_rf_calib_req {
@@ -1182,8 +1163,8 @@ struct mm_set_rf_calib_req {
 	u32_l param_alpha;
 	u32_l bt_calib_en;
 	u32_l bt_calib_param;
-	u8_l  xtal_cap;
-	u8_l  xtal_cap_fine;
+	u8_l xtal_cap;
+	u8_l xtal_cap_fine;
 };
 
 struct mm_set_rf_calib_cfm {
@@ -1230,31 +1211,6 @@ struct mm_set_txpwr_idx_req {
 
 typedef struct {
 	u8_l enable;
-	s8_l pwrlvl_11b_11ag_2g4[12];
-	s8_l pwrlvl_11n_11ac_2g4[10];
-	s8_l pwrlvl_11ax_2g4[12];
-} txpwr_lvl_conf_v2_t;
-
-typedef struct {
-	u8_l enable;
-	s8_l pwrlvl_11b_11ag_2g4[12];
-	s8_l pwrlvl_11n_11ac_2g4[10];
-	s8_l pwrlvl_11ax_2g4[12];
-	s8_l pwrlvl_11a_5g[12];
-	s8_l pwrlvl_11n_11ac_5g[10];
-	s8_l pwrlvl_11ax_5g[12];
-} txpwr_lvl_conf_v3_t;
-
-struct mm_set_txpwr_lvl_req {
-	union {
-		txpwr_idx_conf_t txpwr_lvl;
-		txpwr_lvl_conf_v2_t txpwr_lvl_v2;
-		txpwr_lvl_conf_v3_t txpwr_lvl_v3;
-	};
-};
-
-typedef struct {
-	u8_l enable;
 	s8_l chan_1_4;
 	s8_l chan_5_9;
 	s8_l chan_10_13;
@@ -1264,23 +1220,16 @@ typedef struct {
 	s8_l chan_142_165;
 } txpwr_ofst_conf_t;
 
-typedef struct {
-	u8_l enable;
-	u8_l xtal_cap;
-	u8_l xtal_cap_fine;
+typedef struct
+{
+    u8_l enable;
+    u8_l xtal_cap;
+    u8_l xtal_cap_fine;
 } xtal_cap_conf_t;
 
-typedef struct {
-	int8_t enable;
-	int8_t pwrofst2x_tbl_2g4[3][3];
-	int8_t pwrofst2x_tbl_5g[3][6];
-} txpwr_ofst2x_conf_t;
 
 struct mm_set_txpwr_ofst_req {
-	union {
-		txpwr_ofst_conf_t txpwr_ofst;
-		txpwr_ofst2x_conf_t txpwr_ofst2x;
-	};
+	txpwr_ofst_conf_t txpwr_ofst;
 };
 
 struct mm_set_stack_start_req {
@@ -1449,8 +1398,6 @@ struct scan_start_req {
 	u8_l ssid_cnt;
 	/// no CCK - For P2P frames not being sent at CCK rate in 2GHz band.
 	bool no_cck;
-	/// Scan duration, in us
-	u32_l duration;
 };
 
 /// Structure containing the parameters of the @ref SCAN_START_CFM message
@@ -1523,8 +1470,6 @@ struct scanu_start_req {
 	u8_l ssid_cnt;
 	/// no CCK - For P2P frames not being sent at CCK rate in 2GHz band.
 	bool no_cck;
-	/// Scan duration, in us
-	u32_l duration;
 };
 
 struct scanu_vendor_ie_req {
@@ -1767,13 +1712,15 @@ struct me_traffic_ind_req {
 	bool_l uapsd;
 };
 
-struct mm_apm_staloss_ind {
-	u8_l sta_idx;
-	u8_l vif_idx;
-	u8_l mac_addr[6];
+struct mm_apm_staloss_ind
+{
+        u8_l sta_idx;
+        u8_l vif_idx;
+        u8_l mac_addr[6];
 };
 
-struct mm_set_txop_req {
+struct mm_set_txop_req
+{
 	u16_l txop_bk;
 	u16_l txop_be;
 	u16_l txop_vi;
@@ -1782,9 +1729,10 @@ struct mm_set_txop_req {
 	u8_l  cfe_en;
 };
 
-struct mm_get_fw_version_cfm {
-	u8_l fw_version_len;
-	u8_l fw_version[63];
+struct mm_get_fw_version_cfm
+{
+    u8_l fw_version_len;
+    u8_l fw_version[63];
 };
 
 /// Structure containing the parameters of the @ref ME_RC_STATS_REQ message.
@@ -1908,16 +1856,6 @@ enum sm_msg_tag {
 	SM_EXTERNAL_AUTH_REQUIRED_IND,
 	/// Response to external authentication request
 	SM_EXTERNAL_AUTH_REQUIRED_RSP,
-	/// Request to update assoc elements after FT over the air authentication
-	SM_FT_AUTH_IND,
-	/// Response to FT authentication with updated assoc elements
-	SM_FT_AUTH_RSP,
-
-	SM_RSP_TIMEOUT_IND,
-
-	SM_COEX_TS_TIMEOUT_IND,
-
-	SM_EXTERNAL_AUTH_REQUIRED_RSP_CFM,
 
 	/// MAX number of messages
 	SM_MAX,
@@ -2476,10 +2414,18 @@ enum dbg_msg_tag {
 	/// Memory mask write confirm
 	DBG_MEM_MASK_WRITE_CFM,
 
-	#ifdef CONFIG_RFTEST
-	DBG_RFTEST_CMD_REQ,
-	DBG_RFTEST_CMD_CFM,
-	#endif
+        DBG_RFTEST_CMD_REQ,
+        DBG_RFTEST_CMD_CFM,
+        DBG_BINDING_REQ,
+        DBG_BINDING_CFM,
+        DBG_BINDING_IND,
+
+        DBG_CUSTOM_MSG_REQ,
+        DBG_CUSTOM_MSG_CFM,
+        DBG_CUSTOM_MSG_IND,
+
+        DBG_GPIO_WRITE_REQ,
+        DBG_GPIO_WRITE_CFM,
 
 	/// Max number of Debug messages
 	DBG_MAX,
@@ -2521,7 +2467,6 @@ struct dbg_mem_mask_write_cfm {
 	u32_l memdata;
 };
 
-#ifdef CONFIG_RFTEST
 struct dbg_rftest_cmd_req {
 	u32_l cmd;
 	u32_l argc;
@@ -2529,9 +2474,14 @@ struct dbg_rftest_cmd_req {
 };
 
 struct dbg_rftest_cmd_cfm {
-	u32_l rftest_result[18];
+	u32_l rftest_result[16];
 };
-#endif
+
+struct dbg_gpio_write_req {
+	uint8_t gpio_init; //1 when initial, others is 0;
+	uint8_t gpio_idx;
+	uint8_t gpio_val;
+};
 
 /// Structure containing the parameters of the @ref DBG_SET_MOD_FILTER_REQ message.
 struct dbg_set_mod_filter_req {
@@ -2580,10 +2530,7 @@ struct dbg_start_app_cfm {
 
 enum {
 	HOST_START_APP_AUTO = 1,
-	HOST_START_APP_CUSTOM,
-#ifdef CONFIG_USB_BT
-	HOST_START_APP_REBOOT,
-#endif // (CONFIG_USB_BT)
+	HOST_START_APP_CUSTOM
 };
 
 ///////////////////////////////////////////////////////////////////////////////
